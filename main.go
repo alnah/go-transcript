@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/joho/godotenv"
@@ -49,10 +50,10 @@ func main() {
 		SilenceUsage:  true,
 	}
 
-	// Subcommands will be added in Phase D:
-	// rootCmd.AddCommand(recordCmd())
-	// rootCmd.AddCommand(transcribeCmd())
-	// rootCmd.AddCommand(liveCmd())
+	// Subcommands.
+	rootCmd.AddCommand(recordCmd())
+	rootCmd.AddCommand(transcribeCmd())
+	rootCmd.AddCommand(liveCmd())
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -71,8 +72,20 @@ func exitCode(err error) int {
 		return ExitInterrupt
 	}
 
+	// Usage errors (ExitUsage = 2): Cobra flag errors.
+	errMsg := err.Error()
+	if strings.Contains(errMsg, "required flag") ||
+		strings.Contains(errMsg, "unknown flag") ||
+		strings.Contains(errMsg, "unknown shorthand") ||
+		strings.Contains(errMsg, "flag needs an argument") ||
+		strings.Contains(errMsg, "invalid argument") ||
+		strings.Contains(errMsg, "if any flags in the group") {
+		return ExitUsage
+	}
+
 	// Setup errors (ExitSetup = 3).
-	if errors.Is(err, ErrFFmpegNotFound) || errors.Is(err, ErrAPIKeyMissing) {
+	if errors.Is(err, ErrFFmpegNotFound) || errors.Is(err, ErrAPIKeyMissing) ||
+		errors.Is(err, ErrNoAudioDevice) || errors.Is(err, ErrLoopbackNotFound) {
 		return ExitSetup
 	}
 
@@ -85,7 +98,8 @@ func exitCode(err error) int {
 	}
 
 	// Transcription errors (ExitTranscription = 5).
-	if errors.Is(err, ErrRateLimit) || errors.Is(err, ErrTimeout) || errors.Is(err, ErrAuthFailed) {
+	if errors.Is(err, ErrRateLimit) || errors.Is(err, ErrQuotaExceeded) ||
+		errors.Is(err, ErrTimeout) || errors.Is(err, ErrAuthFailed) {
 		return ExitTranscription
 	}
 
