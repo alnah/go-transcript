@@ -297,6 +297,102 @@ func installFFmpegMock(t *testing.T, mock *mockFFmpegRunner) func() {
 }
 
 // =============================================================================
+// Mock Exec Command Runner
+// =============================================================================
+
+// mockExecResponse holds the result of a mock command execution.
+type mockExecResponse struct {
+	output []byte
+	err    error
+}
+
+// mockExecRunner manages exec.Command mock state for tests.
+// Supports routing responses by command name.
+type mockExecRunner struct {
+	mu        sync.Mutex
+	responses map[string][]mockExecResponse // command name -> responses
+	callIndex map[string]int                // command name -> current index
+	calls     []execCall                    // all calls for inspection
+}
+
+// execCall records a single exec.Command call for verification.
+type execCall struct {
+	name string
+	args []string
+}
+
+// newMockExecRunner creates a new mock runner.
+func newMockExecRunner() *mockExecRunner {
+	return &mockExecRunner{
+		responses: make(map[string][]mockExecResponse),
+		callIndex: make(map[string]int),
+	}
+}
+
+// OnCommand configures the mock to return the given output when the command is called.
+// Can be called multiple times to set up sequences.
+func (m *mockExecRunner) OnCommand(name string, output []byte, err error) *mockExecRunner {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.responses[name] = append(m.responses[name], mockExecResponse{output: output, err: err})
+	return m
+}
+
+// Run implements the mock command execution.
+func (m *mockExecRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.calls = append(m.calls, execCall{name: name, args: args})
+
+	responses, ok := m.responses[name]
+	if !ok || len(responses) == 0 {
+		return nil, errors.New("command not found: " + name)
+	}
+
+	idx := m.callIndex[name]
+	if idx >= len(responses) {
+		idx = len(responses) - 1 // Repeat last response
+	}
+	m.callIndex[name]++
+
+	resp := responses[idx]
+	return resp.output, resp.err
+}
+
+// CallCount returns the number of times a specific command was called.
+func (m *mockExecRunner) CallCount(name string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, c := range m.calls {
+		if c.name == name {
+			count++
+		}
+	}
+	return count
+}
+
+// TotalCallCount returns the total number of calls made.
+func (m *mockExecRunner) TotalCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.calls)
+}
+
+// installExecMock replaces the global execCommandOutput for testing.
+// Returns a cleanup function that restores the original.
+// Use with t.Cleanup: t.Cleanup(installExecMock(t, mock))
+func installExecMock(t *testing.T, mock *mockExecRunner) func() {
+	t.Helper()
+	original := execCommandOutput
+	execCommandOutput = mock.Run
+	return func() {
+		execCommandOutput = original
+	}
+}
+
+// =============================================================================
 // Filesystem Helpers
 // =============================================================================
 
@@ -443,6 +539,19 @@ func assertFileContains(t *testing.T, path, content string) {
 	}
 	if !containsString(string(data), content) {
 		t.Errorf("file %s does not contain %q", path, content)
+	}
+}
+
+// =============================================================================
+// OpenAI Error Helpers
+// =============================================================================
+
+// apiError creates an OpenAI APIError with the given HTTP status code and message.
+// Use for testing error classification and retry logic.
+func apiError(statusCode int, message string) *openai.APIError {
+	return &openai.APIError{
+		HTTPStatusCode: statusCode,
+		Message:        message,
 	}
 }
 
