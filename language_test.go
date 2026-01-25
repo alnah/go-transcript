@@ -174,10 +174,10 @@ func TestLanguageDisplayName(t *testing.T) {
 
 func TestRestructurer_OutputLanguageInstruction(t *testing.T) {
 	tests := []struct {
-		name           string
-		outputLang     string
+		name            string
+		outputLang      string
 		wantInstruction bool
-		wantContains   string
+		wantContains    string
 	}{
 		{"empty lang - no instruction", "", false, ""},
 		{"french - no instruction (native)", "fr", false, ""},

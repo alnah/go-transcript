@@ -157,9 +157,9 @@ size=N/A time=00:02:30.50 bitrate=N/A speed=1000x`,
 
 func TestParseTimeComponents(t *testing.T) {
 	tests := []struct {
-		name                                   string
+		name                                  string
 		hours, minutes, seconds, centiseconds string
-		expected                               time.Duration
+		expected                              time.Duration
 	}{
 		{"zero", "00", "00", "00", "00", 0},
 		{"one hour", "01", "00", "00", "00", time.Hour},
