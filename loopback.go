@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+// execCommandOutput is the function used to execute commands and capture output.
+// This variable can be replaced in tests to mock command execution.
+var execCommandOutput = execCommandOutputImpl
+
+// execCommandOutputImpl is the real implementation of execCommandOutput.
+func execCommandOutputImpl(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
 // CaptureMode defines what audio source to capture.
 type CaptureMode int
 
@@ -97,12 +106,10 @@ func detectLoopbackDarwin(ctx context.Context, ffmpegPath string) (*loopbackDevi
 func detectLoopbackLinux(ctx context.Context) (*loopbackDevice, error) {
 	// Try to get the default sink name from PulseAudio/PipeWire
 	// The monitor device is named "<sink-name>.monitor"
-	cmd := exec.CommandContext(ctx, "pactl", "get-default-sink")
-	output, err := cmd.Output()
+	output, err := execCommandOutput(ctx, "pactl", "get-default-sink")
 	if err != nil {
 		// pactl not available, try checking for PipeWire
-		cmd = exec.CommandContext(ctx, "pw-cli", "info", "0")
-		if _, pwErr := cmd.Output(); pwErr != nil {
+		if _, pwErr := execCommandOutput(ctx, "pw-cli", "info", "0"); pwErr != nil {
 			return nil, &loopbackError{
 				wrapped: ErrLoopbackNotFound,
 				help:    loopbackInstallInstructionsLinux(),
