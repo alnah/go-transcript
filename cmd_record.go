@@ -36,7 +36,7 @@ func recordCmd() *cobra.Command {
 		Long: `Record audio from microphone, system audio (loopback), or both mixed.
 
 The output format is OGG Vorbis optimized for voice (~50kbps, 16kHz mono).
-Recording can be interrupted with Ctrl+C - the file will be properly finalized.`,
+Recording can be interrupted with Ctrl+C to stop early - the file will be properly finalized.`,
 		Example: `  transcript record -d 2h -o session.ogg           # Microphone only
   transcript record -d 30m --loopback              # System audio only
   transcript record -d 1h --mix -o meeting.ogg     # Mic + system audio`,
