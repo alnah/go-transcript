@@ -5,7 +5,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 
-.PHONY: help build test test-integration test-cover bench run clean fmt vet lint sec check check-all tools deps version labels
+.PHONY: help build test test-integration test-e2e test-all test-cover test-cover-all bench run clean fmt vet lint sec check check-all tools deps version labels
 
 .DEFAULT_GOAL := help
 
@@ -31,6 +31,12 @@ test: ## Run unit tests
 
 test-integration: ## Run integration tests (requires FFmpeg)
 	go test -v -tags=integration ./...
+
+test-e2e: ## Run E2E tests (requires OPENAI_API_KEY + FFmpeg)
+	go test -v -tags=e2e ./...
+
+test-all: ## Run all tests (unit + integration + e2e)
+	go test -v -tags=integration,e2e ./...
 
 test-cover: ## Run unit tests with coverage report
 	go test -v -coverprofile=coverage.out ./...
