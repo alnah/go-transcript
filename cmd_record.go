@@ -50,11 +50,7 @@ Recording can be interrupted with Ctrl+C - the file will be properly finalized.`
 				return fmt.Errorf("duration must be positive: %w", ErrInvalidDuration)
 			}
 
-			// Resolve output path.
-			if output == "" {
-				output = defaultRecordingFilename()
-			}
-
+			// Note: output path resolution (including output-dir) is done in runRecord.
 			opts := recordOptions{
 				duration: duration,
 				output:   output,
@@ -85,6 +81,15 @@ Recording can be interrupted with Ctrl+C - the file will be properly finalized.`
 
 // runRecord executes the recording with the given options.
 func runRecord(ctx context.Context, opts recordOptions) error {
+	// Load config for output-dir.
+	cfg, err := LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
+	}
+
+	// Resolve output path using config output-dir.
+	opts.output = ResolveOutputPath(opts.output, cfg.OutputDir, defaultRecordingFilename())
+
 	// Warn if output extension is not .ogg.
 	ext := strings.ToLower(filepath.Ext(opts.output))
 	if ext != "" && ext != ".ogg" {

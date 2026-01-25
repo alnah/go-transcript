@@ -55,11 +55,7 @@ Recording can be interrupted with Ctrl+C - partial audio will be saved.`,
 				return fmt.Errorf("duration must be positive: %w", ErrInvalidDuration)
 			}
 
-			// Resolve output path.
-			if output == "" {
-				output = defaultLiveFilename()
-			}
-
+			// Note: output path resolution (including output-dir) is done in runLive.
 			return runLive(cmd.Context(), liveOptions{
 				duration:   duration,
 				output:     output,
@@ -370,6 +366,15 @@ func liveWritePhase(output, content string) error {
 
 // runLive executes the live recording and transcription pipeline.
 func runLive(ctx context.Context, opts liveOptions) error {
+	// Load config for output-dir.
+	cfg, err := LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
+	}
+
+	// Resolve output path using config output-dir.
+	opts.output = ResolveOutputPath(opts.output, cfg.OutputDir, defaultLiveFilename())
+
 	// Validate environment (fail-fast)
 	env, err := validateLiveEnv(ctx, opts)
 	if err != nil {

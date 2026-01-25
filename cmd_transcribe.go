@@ -115,19 +115,24 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diari
 			ext, supportedFormatsList(), ErrUnsupportedFormat)
 	}
 
-	// 3. Output path (derive if not specified, check deferred to write with O_EXCL)
-	if output == "" {
-		output = deriveOutputPath(inputPath)
+	// 3. Load config for output-dir
+	cfg, err := LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
 	}
 
-	// 4. Template valid (if specified) - fail-fast before expensive operations
+	// 4. Output path (resolve with output-dir, derive default from input if needed)
+	defaultOutput := deriveOutputPath(filepath.Base(inputPath))
+	output = ResolveOutputPath(output, cfg.OutputDir, defaultOutput)
+
+	// 5. Template valid (if specified) - fail-fast before expensive operations
 	if template != "" {
 		if _, err := GetTemplate(template); err != nil {
 			return err
 		}
 	}
 
-	// 5. Language validation
+	// 6. Language validation
 	if err := ValidateLanguage(language); err != nil {
 		return err
 	}
@@ -135,15 +140,15 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diari
 		return err
 	}
 
-	// 6. Output language requires template
+	// 7. Output language requires template
 	if outputLang != "" && template == "" {
 		return fmt.Errorf("--output-lang requires --template (raw transcripts use the audio's language)")
 	}
 
-	// 7. Parallel bounds (clamp to 1-10)
+	// 8. Parallel bounds (clamp to 1-10)
 	parallel = clampParallel(parallel)
 
-	// 8. API key present
+	// 9. API key present
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		return fmt.Errorf("%w (set it with: export OPENAI_API_KEY=sk-...)", ErrAPIKeyMissing)
