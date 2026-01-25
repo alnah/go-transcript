@@ -588,6 +588,73 @@ func truncate(s string, maxLen int) string {
 }
 
 // =============================================================================
+// Long Transcript Generator (for Integration Tests)
+// =============================================================================
+
+// generateLongTranscript creates a transcript exceeding the MapReduce threshold.
+// The content is structured with numbered segments to simulate real transcription output.
+// Use for integration tests that need to trigger MapReduce behavior.
+//
+// Parameters:
+//   - tokens: target token count (use > 80000 to trigger MapReduce)
+//
+// The generated content uses French text structure to match the project's templates.
+// Token estimation uses len(text)/3, same as estimateTokens() in restructurer.go.
+func generateLongTranscript(tokens int) string {
+	// Each segment template is ~287 chars base + variable segment number digits
+	// We use a conservative estimate and add extra margin to ensure we exceed target
+	const segmentTemplate = `[Segment %d]
+Alors voici ce que je voulais dire concernant ce point important. Dans le contexte actuel,
+nous devons vraiment repenser notre approche sur ce sujet. Les équipes ont fait un travail
+remarquable mais les contraintes nous obligent à prioriser différemment les objectifs.
+
+`
+	// Calculate target chars (tokens * 3) and add 10% margin for rounding errors
+	targetChars := (tokens * 3 * 110) / 100
+
+	var builder stringsBuilder
+	segmentNum := 1
+	for builder.Len() < targetChars {
+		builder.WriteString(sprintf(segmentTemplate, segmentNum))
+		segmentNum++
+	}
+
+	return builder.String()
+}
+
+// stringsBuilder is a minimal strings.Builder wrapper to avoid import in test file.
+type stringsBuilder struct {
+	buf []byte
+}
+
+func (b *stringsBuilder) WriteString(s string) {
+	b.buf = append(b.buf, s...)
+}
+
+func (b *stringsBuilder) String() string {
+	return string(b.buf)
+}
+
+func (b *stringsBuilder) Len() int {
+	return len(b.buf)
+}
+
+// sprintf formats a string with a single int argument (simplified for test use).
+func sprintf(format string, arg int) string {
+	// Find %d and replace with the number
+	result := make([]byte, 0, len(format)+10)
+	for i := 0; i < len(format); i++ {
+		if i < len(format)-1 && format[i] == '%' && format[i+1] == 'd' {
+			result = append(result, []byte(itoa(arg))...)
+			i++ // skip 'd'
+		} else {
+			result = append(result, format[i])
+		}
+	}
+	return string(result)
+}
+
+// =============================================================================
 // Fixture Helpers
 // =============================================================================
 
@@ -662,4 +729,67 @@ func padZeros(s string, width int) string {
 		s = "0" + s
 	}
 	return s
+}
+
+// =============================================================================
+// Long Transcript Generator Tests
+// =============================================================================
+
+// TestGenerateLongTranscript_ExceedsThreshold verifies that the generator
+// produces content that exceeds the MapReduce threshold (80K tokens).
+// This is a sanity check to ensure integration tests will trigger MapReduce.
+func TestGenerateLongTranscript_ExceedsThreshold(t *testing.T) {
+	t.Parallel()
+
+	const mapreduceThreshold = 80000 // tokens, from mapreduce.go
+	const targetTokens = 100000      // 25% above threshold for safety margin
+
+	transcript := generateLongTranscript(targetTokens)
+
+	// Verify using the same estimation as restructurer.go
+	actualTokens := len(transcript) / 3
+
+	if actualTokens < mapreduceThreshold {
+		t.Errorf("generated transcript has %d tokens, want > %d (MapReduce threshold)",
+			actualTokens, mapreduceThreshold)
+	}
+
+	if actualTokens < targetTokens {
+		t.Errorf("generated transcript has %d tokens, want >= %d (target)",
+			actualTokens, targetTokens)
+	}
+}
+
+// TestGenerateLongTranscript_HasStructure verifies that the generated content
+// has the expected segment structure for realistic testing.
+func TestGenerateLongTranscript_HasStructure(t *testing.T) {
+	t.Parallel()
+
+	transcript := generateLongTranscript(1000) // Small for quick test
+
+	// Should contain segment markers
+	if !containsString(transcript, "[Segment 1]") {
+		t.Error("generated transcript missing [Segment 1] marker")
+	}
+	if !containsString(transcript, "[Segment 2]") {
+		t.Error("generated transcript missing [Segment 2] marker")
+	}
+
+	// Should contain paragraph separators (for MapReduce splitting)
+	if !containsString(transcript, "\n\n") {
+		t.Error("generated transcript missing paragraph separators")
+	}
+}
+
+// TestGenerateLongTranscript_Deterministic verifies that the generator
+// produces identical output for the same input.
+func TestGenerateLongTranscript_Deterministic(t *testing.T) {
+	t.Parallel()
+
+	first := generateLongTranscript(5000)
+	second := generateLongTranscript(5000)
+
+	if first != second {
+		t.Error("generateLongTranscript is not deterministic")
+	}
 }
