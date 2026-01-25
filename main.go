@@ -41,7 +41,7 @@ func main() {
 
 	// Root command.
 	rootCmd := &cobra.Command{
-		Use:     "go-transcript",
+		Use:     "transcript",
 		Short:   "Record, transcribe, and restructure audio sessions",
 		Version: fmt.Sprintf("%s (commit: %s)", version, commit),
 		// Silence Cobra's default error/usage printing; we handle it ourselves.
@@ -71,23 +71,28 @@ func exitCode(err error) int {
 		return ExitInterrupt
 	}
 
-	// Map sentinel errors to exit codes.
-	// These will be defined in errors.go (Phase B).
-	//
-	// if errors.Is(err, ErrFFmpegNotFound) || errors.Is(err, ErrAPIKeyMissing) {
-	//     return ExitSetup
-	// }
-	// if errors.Is(err, ErrInvalidDuration) || errors.Is(err, ErrUnsupportedFormat) ||
-	//    errors.Is(err, ErrFileNotFound) || errors.Is(err, ErrUnknownTemplate) ||
-	//    errors.Is(err, ErrOutputExists) {
-	//     return ExitValidation
-	// }
-	// if errors.Is(err, ErrRateLimit) || errors.Is(err, ErrTimeout) || errors.Is(err, ErrAuthFailed) {
-	//     return ExitTranscription
-	// }
-	// if errors.Is(err, ErrTranscriptTooLong) {
-	//     return ExitRestructure
-	// }
+	// Setup errors (ExitSetup = 3).
+	if errors.Is(err, ErrFFmpegNotFound) || errors.Is(err, ErrAPIKeyMissing) {
+		return ExitSetup
+	}
+
+	// Validation errors (ExitValidation = 4).
+	if errors.Is(err, ErrInvalidDuration) || errors.Is(err, ErrUnsupportedFormat) ||
+		errors.Is(err, ErrFileNotFound) || errors.Is(err, ErrUnknownTemplate) ||
+		errors.Is(err, ErrOutputExists) || errors.Is(err, ErrChunkingFailed) ||
+		errors.Is(err, ErrChunkTooLarge) {
+		return ExitValidation
+	}
+
+	// Transcription errors (ExitTranscription = 5).
+	if errors.Is(err, ErrRateLimit) || errors.Is(err, ErrTimeout) || errors.Is(err, ErrAuthFailed) {
+		return ExitTranscription
+	}
+
+	// Restructure errors (ExitRestructure = 6).
+	if errors.Is(err, ErrTranscriptTooLong) {
+		return ExitRestructure
+	}
 
 	return ExitGeneral
 }

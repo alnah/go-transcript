@@ -1,4 +1,4 @@
-BINARY := go-transcript
+BINARY := transcript
 
 # Version info injected at build time
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
