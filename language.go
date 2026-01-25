@@ -93,6 +93,20 @@ func ValidateLanguage(lang string) error {
 	return nil
 }
 
+// BaseLanguageCode extracts the ISO 639-1 base language code from a locale.
+// OpenAI's transcription API only accepts base codes, not regional variants.
+// Examples: "pt-BR" -> "pt", "zh-CN" -> "zh", "en" -> "en"
+func BaseLanguageCode(lang string) string {
+	if lang == "" {
+		return ""
+	}
+	normalized := NormalizeLanguage(lang)
+	if idx := strings.Index(normalized, "-"); idx != -1 {
+		return normalized[:idx]
+	}
+	return normalized
+}
+
 // IsFrench returns true if the language code represents French.
 // Used to skip the output language instruction when output is French
 // (since templates are already in French).

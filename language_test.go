@@ -78,6 +78,35 @@ func TestValidateLanguage(t *testing.T) {
 	}
 }
 
+func TestBaseLanguageCode(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", ""},
+		{"en", "en"},
+		{"EN", "en"},
+		{"pt-BR", "pt"},
+		{"pt-br", "pt"},
+		{"pt_BR", "pt"},
+		{"PT_BR", "pt"},
+		{"zh-CN", "zh"},
+		{"zh-TW", "zh"},
+		{"fr-CA", "fr"},
+		{"en-US", "en"},
+		{"en-GB", "en"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := BaseLanguageCode(tt.input)
+			if got != tt.expected {
+				t.Errorf("BaseLanguageCode(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestIsFrench(t *testing.T) {
 	tests := []struct {
 		input    string

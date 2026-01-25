@@ -174,7 +174,7 @@ func (t *OpenAITranscriber) Transcribe(ctx context.Context, audioPath string, op
 		FilePath: audioPath,
 		Format:   format,
 		Prompt:   opts.Prompt,
-		Language: opts.Language,
+		Language: BaseLanguageCode(opts.Language), // OpenAI only accepts ISO 639-1 base codes
 	}
 
 	return t.transcribeWithRetry(ctx, req, opts.Diarize)
