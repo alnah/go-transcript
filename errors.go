@@ -59,8 +59,12 @@ var (
 // API and network errors during transcription.
 
 var (
-	// ErrRateLimit indicates OpenAI API rate limit was exceeded.
+	// ErrRateLimit indicates OpenAI API rate limit was exceeded (temporary, retryable).
 	ErrRateLimit = errors.New("rate limit exceeded")
+
+	// ErrQuotaExceeded indicates OpenAI API quota was exceeded (billing issue, not retryable).
+	// This is different from ErrRateLimit - it requires user action (check billing).
+	ErrQuotaExceeded = errors.New("quota exceeded")
 
 	// ErrTimeout indicates a request timed out.
 	ErrTimeout = errors.New("request timeout")
