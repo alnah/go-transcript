@@ -1,0 +1,131 @@
+name: Bug Report
+description: Report a bug in go-transcript
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Before submitting:
+        - Check [Known Limitations](https://github.com/alnah/go-transcript#known-limitations)
+        - Check [Troubleshooting](https://github.com/alnah/go-transcript#troubleshooting)
+        - Search [existing issues](https://github.com/alnah/go-transcript/issues)
+
+        > **Note:** This project is in active development and not accepting PRs, but bug reports are welcome.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I have checked the Known Limitations section
+          required: true
+        - label: I have checked the Troubleshooting section
+          required: true
+        - label: I have searched existing issues for duplicates
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: What happened? Be specific.
+      placeholder: "When I run `transcript live -d 1h -t meeting`, the output..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      description: Minimal steps to reproduce the issue
+      value: |
+        1. Run: `transcript ...`
+        2. Observe: ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: command
+    attributes:
+      label: Command
+      description: Which command were you using?
+      options:
+        - record
+        - transcribe
+        - live
+        - config
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: capture-mode
+    attributes:
+      label: Capture Mode
+      description: If recording, what capture mode?
+      options:
+        - Microphone (default)
+        - Loopback (--loopback)
+        - Mix (--mix)
+        - N/A (not recording)
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS Version
+      placeholder: "e.g., macOS 14.2, Ubuntu 24.04, Windows 11"
+
+  - type: input
+    id: version
+    attributes:
+      label: go-transcript Version
+      description: Run `transcript version` to check
+      placeholder: "v0.1.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error Message
+      description: Copy-paste the exact error from your terminal
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: env-vars
+    attributes:
+      label: Environment Variables
+      description: Relevant environment variables (mask your API key!)
+      placeholder: |
+        OPENAI_API_KEY=sk-...XXX (masked)
+        FFMPEG_PATH=/usr/local/bin/ffmpeg
+        TRANSCRIPT_OUTPUT_DIR=~/Documents
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Logs, screenshots, or anything else helpful

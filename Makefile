@@ -5,7 +5,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 
-.PHONY: help build test test-integration test-cover bench run clean fmt vet lint sec check check-all tools deps version
+.PHONY: help build test test-integration test-cover bench run clean fmt vet lint sec check check-all tools deps version labels
 
 .DEFAULT_GOAL := help
 
@@ -78,3 +78,6 @@ transcribe-test-brainstorm: build ## Transcribe with brainstorm template
 
 live-test: build ## Full live test (30s recording + transcription)
 	./$(BINARY) live -d 30s -o live_test.md -t brainstorm --keep-audio
+
+labels: ## Configure GitHub labels (requires gh CLI)
+	./scripts/setup-labels.sh
