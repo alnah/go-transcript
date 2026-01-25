@@ -285,6 +285,9 @@ coverage.out
 *.mpeg
 *.mpga
 
+# Exception: test fixtures in testdata/ are tracked
+!testdata/*.ogg
+
 # Transcription output (test files)
 test.md
 test_*.md

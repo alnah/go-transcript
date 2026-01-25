@@ -5,7 +5,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 
-.PHONY: help build test test-integration test-e2e test-all test-cover test-cover-all bench run clean fmt vet lint sec check check-all tools deps version labels
+.PHONY: help build test test-integration test-e2e test-all test-cover test-cover-all bench run clean fmt vet lint sec check check-all tools deps version labels testdata
 
 .DEFAULT_GOAL := help
 
@@ -87,3 +87,23 @@ live-test: build ## Full live test (30s recording + transcription)
 
 labels: ## Configure GitHub labels (requires gh CLI)
 	./scripts/setup-labels.sh
+
+# Test fixtures (do NOT regenerate unless necessary - see testdata/README.md)
+testdata: testdata/sample.ogg testdata/short.ogg ## Regenerate test audio fixtures
+
+testdata/sample.ogg:
+	ffmpeg -y \
+	  -f lavfi -i "sine=frequency=440:duration=2" \
+	  -f lavfi -i "anullsrc=r=16000:cl=mono" \
+	  -f lavfi -i "sine=frequency=880:duration=2" \
+	  -f lavfi -i "anullsrc=r=16000:cl=mono" \
+	  -f lavfi -i "sine=frequency=660:duration=2" \
+	  -filter_complex "[0]aresample=16000[s0];[1]atrim=duration=1[p1];[2]aresample=16000[s1];[3]atrim=duration=1[p2];[4]aresample=16000[s2];[s0][p1][s1][p2][s2]concat=n=5:v=0:a=1[out]" \
+	  -map "[out]" -ac 1 -c:a libvorbis -q:a 2 \
+	  testdata/sample.ogg
+
+testdata/short.ogg:
+	ffmpeg -y \
+	  -f lavfi -i "sine=frequency=440:duration=3" \
+	  -ar 16000 -ac 1 -c:a libvorbis -q:a 2 \
+	  testdata/short.ogg
