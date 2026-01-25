@@ -42,7 +42,7 @@ func TestOpenAIRestructurer_Restructure_Success(t *testing.T) {
 		}),
 	)
 
-	result, err := r.Restructure(context.Background(), "Raw transcript content", "brainstorm")
+	result, err := r.Restructure(context.Background(), "Raw transcript content", "brainstorm", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestOpenAIRestructurer_Restructure_UnknownTemplate(t *testing.T) {
 		withChatCompleter(&mockChatCompleter{}),
 	)
 
-	_, err := r.Restructure(context.Background(), "transcript", "nonexistent")
+	_, err := r.Restructure(context.Background(), "transcript", "nonexistent", "")
 	if !errors.Is(err, ErrUnknownTemplate) {
 		t.Errorf("expected ErrUnknownTemplate, got %v", err)
 	}
@@ -95,7 +95,7 @@ func TestOpenAIRestructurer_Restructure_TranscriptTooLong(t *testing.T) {
 	// 400 chars / 3 = ~133 tokens > 100 limit
 	longTranscript := strings.Repeat("a", 400)
 
-	_, err := r.Restructure(context.Background(), longTranscript, "brainstorm")
+	_, err := r.Restructure(context.Background(), longTranscript, "brainstorm", "")
 	if !errors.Is(err, ErrTranscriptTooLong) {
 		t.Errorf("expected ErrTranscriptTooLong, got %v", err)
 	}
@@ -113,7 +113,7 @@ func TestOpenAIRestructurer_Restructure_APIContextLengthExceeded(t *testing.T) {
 		}),
 	)
 
-	_, err := r.Restructure(context.Background(), "transcript", "brainstorm")
+	_, err := r.Restructure(context.Background(), "transcript", "brainstorm", "")
 	if !errors.Is(err, ErrTranscriptTooLong) {
 		t.Errorf("expected ErrTranscriptTooLong, got %v", err)
 	}
@@ -134,7 +134,7 @@ func TestOpenAIRestructurer_Restructure_RateLimit(t *testing.T) {
 		}),
 	)
 
-	_, err := r.Restructure(context.Background(), "transcript", "brainstorm")
+	_, err := r.Restructure(context.Background(), "transcript", "brainstorm", "")
 	if !errors.Is(err, ErrRateLimit) {
 		t.Errorf("expected ErrRateLimit, got %v", err)
 	}
@@ -155,7 +155,7 @@ func TestOpenAIRestructurer_Restructure_AuthFailed(t *testing.T) {
 		}),
 	)
 
-	_, err := r.Restructure(context.Background(), "transcript", "brainstorm")
+	_, err := r.Restructure(context.Background(), "transcript", "brainstorm", "")
 	if !errors.Is(err, ErrAuthFailed) {
 		t.Errorf("expected ErrAuthFailed, got %v", err)
 	}
@@ -173,7 +173,7 @@ func TestOpenAIRestructurer_Restructure_Timeout(t *testing.T) {
 		}),
 	)
 
-	_, err := r.Restructure(context.Background(), "transcript", "brainstorm")
+	_, err := r.Restructure(context.Background(), "transcript", "brainstorm", "")
 	if !errors.Is(err, ErrTimeout) {
 		t.Errorf("expected ErrTimeout, got %v", err)
 	}
@@ -193,7 +193,7 @@ func TestOpenAIRestructurer_Restructure_EmptyResponse(t *testing.T) {
 		}),
 	)
 
-	_, err := r.Restructure(context.Background(), "transcript", "brainstorm")
+	_, err := r.Restructure(context.Background(), "transcript", "brainstorm", "")
 	if err == nil {
 		t.Error("expected error for empty response")
 	}
@@ -220,7 +220,7 @@ func TestOpenAIRestructurer_WithOptions(t *testing.T) {
 		WithMaxInputTokens(50000),
 	)
 
-	_, err := r.Restructure(context.Background(), "short", "test")
+	_, err := r.Restructure(context.Background(), "short", "test", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestOpenAIRestructurer_UsesRealGetTemplate(t *testing.T) {
 	// Use real GetTemplate (not mocked)
 	r := NewOpenAIRestructurer(nil, withChatCompleter(mock))
 
-	_, err := r.Restructure(context.Background(), "transcript", "brainstorm")
+	_, err := r.Restructure(context.Background(), "transcript", "brainstorm", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestOpenAIRestructurer_ContextCancellation(t *testing.T) {
 		}),
 	)
 
-	_, err := r.Restructure(ctx, "transcript", "brainstorm")
+	_, err := r.Restructure(ctx, "transcript", "brainstorm", "")
 	if err == nil {
 		t.Error("expected error for cancelled context")
 	}

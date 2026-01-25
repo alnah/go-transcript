@@ -13,7 +13,10 @@ import (
 
 // Restructurer transforms raw transcripts into structured markdown using templates.
 type Restructurer interface {
-	Restructure(ctx context.Context, transcript, templateName string) (string, error)
+	// Restructure transforms a transcript using the specified template.
+	// outputLang specifies the output language (e.g., "en", "pt-BR").
+	// Empty outputLang uses the template's native language (French).
+	Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, error)
 }
 
 // chatCompleter is an internal interface for OpenAI chat completion.
@@ -120,27 +123,34 @@ func NewOpenAIRestructurer(client *openai.Client, opts ...RestructurerOption) *O
 }
 
 // Restructure transforms a raw transcript into structured markdown using the specified template.
+// outputLang specifies the output language (e.g., "en", "pt-BR"). Empty uses template's native language (French).
 // Returns ErrUnknownTemplate if the template name is invalid.
 // Returns ErrTranscriptTooLong if the transcript exceeds the token limit (estimated).
 // Automatically retries on transient errors (rate limits, timeouts, server errors).
 //
 // Token estimation uses len(text)/3 which is conservative for French text.
 // The actual API limit is 128K tokens; we use 100K as a safety margin.
-func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templateName string) (string, error) {
+func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, error) {
 	// 1. Resolve template
 	prompt, err := r.resolveTemplate(templateName)
 	if err != nil {
 		return "", err
 	}
 
-	// 2. Estimate tokens and check limit
+	// 2. Add language instruction if output is not French (template's native language)
+	if outputLang != "" && !IsFrench(outputLang) {
+		langName := LanguageDisplayName(outputLang)
+		prompt = fmt.Sprintf("Respond in %s.\n\n%s", langName, prompt)
+	}
+
+	// 3. Estimate tokens and check limit
 	estimatedTokens := estimateTokens(transcript)
 	if estimatedTokens > r.maxInputTokens {
 		return "", fmt.Errorf("transcript too long (%dK tokens estimated, max %dK): %w",
 			estimatedTokens/1000, r.maxInputTokens/1000, ErrTranscriptTooLong)
 	}
 
-	// 3. Build request
+	// 4. Build request
 	req := openai.ChatCompletionRequest{
 		Model: r.model,
 		Messages: []openai.ChatCompletionMessage{
@@ -156,7 +166,7 @@ func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templa
 		Temperature: 0, // Deterministic output for reproducibility
 	}
 
-	// 4. Call API with retry
+	// 5. Call API with retry
 	return r.restructureWithRetry(ctx, req)
 }
 
