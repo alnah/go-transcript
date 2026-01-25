@@ -1,20 +1,25 @@
 # go-transcript
 
 [![Go Reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/alnah/go-transcript)
-[![Go Report Card](https://goreportcard.com/badge/github.com/alnah/go-transcript)](https://goreportcard.com/report/github.com/alnah/go-transcript)
+[![Go Report Card](https://img.shields.io/badge/go%20report-A+-brightgreen)](https://goreportcard.com/report/github.com/alnah/go-transcript)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/alnah/go-transcript/ci.yml?branch=main)](https://github.com/alnah/go-transcript/actions)
 [![Coverage](https://img.shields.io/codecov/c/github/alnah/go-transcript)](https://codecov.io/gh/alnah/go-transcript)
-[![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
-> Record, transcribe, and restructure audio using OpenAI's transcription API with automatic chunking and template-based formatting.
+> Record, transcribe, and restructure audio via CLI - microphone/loopback capture, automatic chunking, parallel transcription, and template-based formatting.
 
-## Features
+## Table of Contents
 
-- **Record audio** from microphone, system audio (loopback), or both mixed
-- **Transcribe** audio files with automatic silence-based chunking (respects OpenAI's 25MB limit)
-- **Restructure** transcripts using templates: `brainstorm`, `meeting`, `lecture`
-- **Live mode** combines recording and transcription in one command with graceful interrupt handling
-- **Auto-download FFmpeg** if not installed (macOS, Linux, Windows)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [CLI Reference](#cli-reference)
+- [Environment Variables](#environment-variables)
+- [Configuration](#configuration)
+- [Templates](#templates)
+- [Troubleshooting](#troubleshooting)
+- [Known Limitations](#known-limitations)
+- [Contributing](#contributing)
 
 ## Installation
 
@@ -22,7 +27,10 @@
 go install github.com/alnah/go-transcript@latest
 ```
 
-Or build from source:
+<details>
+<summary>Other installation methods</summary>
+
+### Build from Source
 
 ```bash
 git clone https://github.com/alnah/go-transcript.git
@@ -30,11 +38,19 @@ cd go-transcript
 make build
 ```
 
+### Binary Download
+
+Download pre-built binaries from [GitHub Releases](https://github.com/alnah/go-transcript/releases).
+
+</details>
+
 ## Requirements
 
 - Go 1.25+
-- FFmpeg (auto-downloaded if not present)
-- OpenAI API key (`OPENAI_API_KEY` environment variable)
+- FFmpeg (downloaded automatically on first run)
+- OpenAI API key
+
+> **Note:** FFmpeg is auto-downloaded for macOS (arm64/amd64), Linux (amd64), and Windows (amd64). Set `FFMPEG_PATH` to use a custom binary.
 
 ## Quick Start
 
@@ -42,79 +58,176 @@ make build
 # Set your API key
 export OPENAI_API_KEY=sk-...
 
-# Record a meeting and get structured notes
+# Record and transcribe a meeting
 transcript live -d 1h -o meeting.md -t meeting
 
 # Transcribe an existing recording
 transcript transcribe recording.ogg -o notes.md -t brainstorm
 
-# Record system audio (e.g., video call)
+# Record system audio (video call)
 transcript record -d 30m --loopback -o call.ogg
 ```
 
-## Usage
+## Features
 
-### Record
+- **Audio recording** - Microphone, system audio (loopback), or both mixed
+- **Automatic chunking** - Splits at silences to respect OpenAI's 25MB limit
+- **Parallel transcription** - Concurrent API requests (configurable 1-10)
+- **Template restructuring** - `brainstorm`, `meeting`, `lecture` formats
+- **Language support** - Specify audio language, translate output
+- **Graceful interrupts** - Ctrl+C stops recording, continues transcription
+
+## CLI Reference
+
+```bash
+transcript <command> [flags]
+
+Commands:
+  record       Record audio to file
+  transcribe   Transcribe audio file to text
+  live         Record and transcribe in one step
+  config       Manage configuration
+  help         Help about any command
+  version      Show version information
+```
+
+### record
 
 Record audio from microphone, system audio, or both.
 
 ```bash
-# Record from microphone for 2 hours
-transcript record -d 2h -o session.ogg
-
-# Record system audio (requires BlackHole on macOS, PulseAudio on Linux)
-transcript record -d 30m --loopback -o system.ogg
-
-# Record both microphone and system audio mixed
-transcript record -d 1h --mix -o meeting.ogg
+transcript record -d 2h -o session.ogg           # Microphone
+transcript record -d 30m --loopback -o system.ogg # System audio
+transcript record -d 1h --mix -o meeting.ogg      # Both mixed
 ```
 
-### Transcribe
+<details>
+<summary>All flags</summary>
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--duration` | `-d` | required | Recording duration (e.g., `30s`, `5m`, `2h`) |
+| `--output` | `-o` | `recording_<timestamp>.ogg` | Output file path |
+| `--device` | | system default | Specific audio input device |
+| `--loopback` | | `false` | Capture system audio instead of microphone |
+| `--mix` | | `false` | Capture both microphone and system audio |
+
+`--loopback` and `--mix` are mutually exclusive.
+
+</details>
+
+### transcribe
 
 Transcribe an existing audio file.
 
 ```bash
-# Basic transcription
-transcript transcribe audio.ogg -o transcript.md
-
-# With template restructuring
+transcript transcribe audio.ogg -o notes.md
 transcript transcribe lecture.mp3 -o notes.md -t lecture
-
-# Specify audio language for better accuracy
-transcript transcribe french_audio.ogg -o notes.md -l fr
-
-# Transcribe French audio, output in English
-transcript transcribe french_audio.ogg -o notes.md -l fr --output-lang en -t meeting
+transcript transcribe french.ogg -o notes.md -l fr --output-lang en -t meeting
 ```
 
-### Live
+<details>
+<summary>All flags</summary>
 
-Record and transcribe in one step. Press Ctrl+C to stop recording early and continue with transcription.
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--output` | `-o` | `<input>.md` | Output file path |
+| `--template` | `-t` | | Restructure template: `brainstorm`, `meeting`, `lecture` |
+| `--language` | `-l` | auto-detect | Audio language (ISO 639-1: `en`, `fr`, `pt-BR`) |
+| `--output-lang` | | same as input | Output language for restructured text |
+| `--parallel` | `-p` | `3` | Max concurrent API requests (1-10) |
+| `--diarize` | | `false` | Enable speaker identification |
+
+`--output-lang` requires `--template`.
+
+</details>
+
+### live
+
+Record and transcribe in one step. Press Ctrl+C to stop recording early and continue with transcription. Press Ctrl+C twice within 2 seconds to abort entirely.
 
 ```bash
-# Basic live transcription
 transcript live -d 30m -o notes.md
-
-# With template and keep the audio file
 transcript live -d 1h -o meeting.md -t meeting --keep-audio
-
-# Record video call (both sides) with speaker identification
 transcript live -d 2h --mix -t meeting --diarize -o call.md
 ```
 
-### Config
+<details>
+<summary>All flags</summary>
+
+Inherits all flags from `record` and `transcribe`, plus:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--keep-audio` | `false` | Preserve the audio file after transcription |
+
+</details>
+
+### config
 
 Manage persistent configuration.
 
 ```bash
-# Set default output directory
 transcript config set output-dir ~/Documents/transcripts
-
-# View current configuration
+transcript config get output-dir
 transcript config list
 ```
 
+<details>
+<summary>Exit codes</summary>
+
+| Code | Name | Description |
+|------|------|-------------|
+| 0 | Success | Operation completed successfully |
+| 1 | General | Unexpected or unclassified error |
+| 2 | Usage | Invalid flags or arguments |
+| 3 | Setup | FFmpeg not found, API key missing, no audio device |
+| 4 | Validation | Unsupported format, file not found, invalid language |
+| 5 | Transcription | Rate limit, quota exceeded, auth failed |
+| 6 | Restructure | Transcript exceeds token limit |
+| 130 | Interrupt | Aborted via Ctrl+C |
+
+</details>
+
+## Environment Variables
+
+**Priority:** CLI flags > environment variables > config file > defaults
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | Yes | | OpenAI API key for transcription and restructuring |
+| `TRANSCRIPT_OUTPUT_DIR` | No | `.` | Default output directory |
+| `FFMPEG_PATH` | No | auto | Path to FFmpeg binary (skips auto-download) |
+
+## Configuration
+
+Config files are stored in the user config directory:
+
+| OS | Config Directory |
+|----|------------------|
+| Linux | `~/.config/go-transcript/` |
+| macOS | `~/.config/go-transcript/` |
+| Windows | `%APPDATA%\go-transcript\` |
+
+Respects `XDG_CONFIG_HOME` if set.
+
+| Key | Description |
+|-----|-------------|
+| `output-dir` | Default directory for output files |
+
+<details>
+<summary>Example config file</summary>
+
+```ini
+# ~/.config/go-transcript/config
+output-dir=/Users/john/Documents/transcripts
+```
+
+</details>
+
 ## Templates
+
+Templates transform raw transcripts into structured markdown.
 
 | Template | Purpose | Output Structure |
 |----------|---------|------------------|
@@ -122,70 +235,131 @@ transcript config list
 | `meeting` | Meeting notes | H1 subject, participants, topics discussed, decisions, action items |
 | `lecture` | Course/conference notes | H1 subject, H2 concepts, definitions in bold, key quotes |
 
-## Configuration
+Templates are in French by default. Use `--output-lang` to translate:
 
-### Environment Variables
+```bash
+transcript transcribe audio.ogg -t meeting --output-lang en
+```
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | Yes | - | OpenAI API key for transcription and restructuring |
-| `TRANSCRIPT_OUTPUT_DIR` | No | `.` | Default output directory for generated files |
-| `FFMPEG_PATH` | No | auto | Path to FFmpeg binary (auto-downloaded if not set) |
+## Supported Formats
 
-### Config File
+OpenAI accepts: `ogg`, `mp3`, `wav`, `m4a`, `flac`, `mp4`, `mpeg`, `mpga`, `webm`
 
-Configuration is stored in `~/.config/go-transcript/config` (or `$XDG_CONFIG_HOME/go-transcript/config`).
+Recording output is always OGG Vorbis (16kHz mono, ~50kbps) optimized for voice.
 
-| Key | Description |
-|-----|-------------|
-| `output-dir` | Default directory for output files |
+## Troubleshooting
 
-## Command Reference
+### FFmpeg not found
 
-### Common Flags
+FFmpeg is auto-downloaded on first run. If download fails:
 
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--output` | `-o` | Output file path |
-| `--template` | `-t` | Restructure template: `brainstorm`, `meeting`, `lecture` |
-| `--language` | `-l` | Audio language (ISO 639-1: `en`, `fr`, `pt-BR`) |
-| `--output-lang` | - | Output language for restructured text (requires `--template`) |
-| `--parallel` | `-p` | Max concurrent API requests (1-10, default: 3) |
-| `--diarize` | - | Enable speaker identification |
+```bash
+# macOS
+brew install ffmpeg
 
-### Record Flags
+# Ubuntu/Debian
+sudo apt install ffmpeg
 
-| Flag | Description |
-|------|-------------|
-| `--duration`, `-d` | Recording duration (required): `30s`, `5m`, `2h` |
-| `--device` | Specific audio input device |
-| `--loopback` | Capture system audio instead of microphone |
-| `--mix` | Capture both microphone and system audio |
+# Windows
+winget install ffmpeg
+```
 
-### Live Flags
+Or set `FFMPEG_PATH` to your binary location.
 
-| Flag | Description |
-|------|-------------|
-| `--keep-audio` | Preserve the audio file after transcription |
+### Loopback device not found
 
-## Supported Audio Formats
+System audio capture requires a virtual audio driver:
 
-ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm
+<details>
+<summary>macOS - BlackHole</summary>
 
-## Exit Codes
+```bash
+brew install --cask blackhole-2ch
+```
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Usage error (invalid flags) |
-| 3 | Setup error (FFmpeg not found, API key missing, no audio device) |
-| 4 | Validation error (unsupported format, file not found, invalid language) |
-| 5 | Transcription error (rate limit, quota exceeded, auth failed) |
-| 6 | Restructure error (transcript too long) |
-| 130 | Interrupted (Ctrl+C) |
+**Important:** BlackHole is a "black hole" - audio sent to it is NOT audible. To hear audio while recording:
 
-## Development
+1. Open "Audio MIDI Setup" (Spotlight search)
+2. Click "+" > "Create Multi-Output Device"
+3. Check both your speakers AND BlackHole 2ch
+4. Set this Multi-Output as your system output
+
+</details>
+
+<details>
+<summary>Linux - PulseAudio/PipeWire</summary>
+
+Usually pre-installed. Loopback uses the monitor device of your default sink.
+
+```bash
+# Verify PulseAudio is working
+pactl get-default-sink
+
+# Install if missing
+sudo apt install pulseaudio pulseaudio-utils
+```
+
+</details>
+
+<details>
+<summary>Windows - Stereo Mix or VB-Cable</summary>
+
+**Option 1 - Enable Stereo Mix (recommended):**
+
+1. Right-click speaker icon > Sound settings > More sound settings
+2. Recording tab > Right-click > Show Disabled Devices
+3. Enable "Stereo Mix" if present
+
+**Option 2 - Install VB-Audio Virtual Cable:**
+
+Download from: https://vb-audio.com/Cable/
+
+</details>
+
+### API errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "OPENAI_API_KEY not set" | Missing API key | `export OPENAI_API_KEY=sk-...` |
+| "rate limit exceeded" | Too many requests | Reduce `--parallel` or wait |
+| "quota exceeded" | Billing issue | Check OpenAI account billing |
+| "authentication failed" | Invalid API key | Verify your API key |
+
+### Transcript too long
+
+The restructuring step has a ~100K token limit. For very long recordings:
+
+- Skip restructuring (no `--template`)
+- Split the audio file manually
+- Use shorter recording sessions
+
+## Known Limitations
+
+### By Design
+
+| Not Supported | Why |
+|---------------|-----|
+| Real-time streaming | OpenAI Whisper API is batch-only |
+| Local transcription | Requires OpenAI API |
+| Video input | Audio extraction not implemented |
+
+### OpenAI API
+
+| Limitation | Workaround |
+|------------|------------|
+| 25MB file size | Auto-chunking at silences |
+| Rate limits | Exponential backoff with retry |
+| No true diarization | Uses segment-based pseudo-diarization |
+
+### Platform Notes
+
+| Issue | Solution |
+|-------|----------|
+| No loopback on Linux without PulseAudio | Install pulseaudio |
+| BlackHole mutes audio on macOS | Create Multi-Output Device |
+| Stereo Mix disabled on Windows | Enable in Sound settings |
+
+## Contributing
 
 ```bash
 make build    # Build binary
@@ -195,15 +369,6 @@ make bench    # Run benchmarks
 make tools    # Install staticcheck and gosec
 ```
 
-## CI/CD
-
-- **Tests**: Enforced with race detection
-- **Coverage**: Uploaded to Codecov
-- **Formatting**: Enforced (gofmt)
-- **Static analysis**: Enforced (go vet, staticcheck)
-- **Security scan**: Advisory (gosec)
-- **Releases**: Automated via GoReleaser on tags
-
 ## License
 
-BSD 3-Clause - see [LICENSE](LICENSE)
+See: [BSD-3-Clause](LICENSE).
