@@ -54,6 +54,7 @@ func main() {
 	rootCmd.AddCommand(recordCmd())
 	rootCmd.AddCommand(transcribeCmd())
 	rootCmd.AddCommand(liveCmd())
+	rootCmd.AddCommand(configCmd())
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
