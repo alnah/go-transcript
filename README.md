@@ -52,6 +52,24 @@ Download pre-built binaries from [GitHub Releases](https://github.com/alnah/go-t
 
 > **Note:** FFmpeg is auto-downloaded for macOS (arm64/amd64), Linux (amd64), and Windows (amd64). Set `FFMPEG_PATH` to use a custom binary.
 
+### Quick Setup
+
+Create a `.env` file in your working directory (auto-loaded on startup):
+
+```bash
+# If you cloned the repo:
+cp .env.example .env
+
+# Or create directly:
+echo "OPENAI_API_KEY=sk-your-key" > .env
+```
+
+Or export directly:
+
+```bash
+export OPENAI_API_KEY=sk-...
+```
+
 ## Quick Start
 
 ```bash
@@ -198,6 +216,8 @@ transcript config list
 | `OPENAI_API_KEY` | Yes | | OpenAI API key for transcription and restructuring |
 | `TRANSCRIPT_OUTPUT_DIR` | No | `.` | Default output directory |
 | `FFMPEG_PATH` | No | auto | Path to FFmpeg binary (skips auto-download) |
+
+> **Tip:** Place a `.env` file in your working directory with these variables. It will be auto-loaded on startup via [godotenv](https://github.com/joho/godotenv). See `.env.example` for reference.
 
 ## Configuration
 
