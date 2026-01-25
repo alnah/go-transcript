@@ -55,10 +55,12 @@ func deriveOutputPath(inputPath string) string {
 // transcribeCmd creates the transcribe command.
 func transcribeCmd() *cobra.Command {
 	var (
-		output   string
-		template string
-		diarize  bool
-		parallel int
+		output     string
+		template   string
+		diarize    bool
+		parallel   int
+		language   string
+		outputLang string
 	)
 
 	cmd := &cobra.Command{
@@ -72,11 +74,12 @@ and optionally restructured using a template.
 Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
 		Example: `  transcript transcribe session.ogg -o notes.md -t brainstorm
   transcript transcribe meeting.ogg -t meeting --diarize
-  transcript transcribe lecture.ogg -t lecture
+  transcript transcribe lecture.ogg -t lecture -l en
+  transcript transcribe session.ogg -l fr --output-lang en -t meeting
   transcript transcribe session.ogg  # Raw transcript, no restructuring`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTranscribe(cmd, args[0], output, template, diarize, parallel)
+			return runTranscribe(cmd, args[0], output, template, diarize, parallel, language, outputLang)
 		},
 	}
 
@@ -84,13 +87,15 @@ Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
 	cmd.Flags().StringVarP(&template, "template", "t", "", "Restructure template: brainstorm, meeting, lecture")
 	cmd.Flags().BoolVar(&diarize, "diarize", false, "Enable speaker identification")
 	cmd.Flags().IntVarP(&parallel, "parallel", "p", 3, "Max concurrent API requests (1-10)")
+	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
+	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language for restructured text (requires --template)")
 
 	return cmd
 }
 
 // runTranscribe executes the transcription pipeline.
-// Validation order: file exists -> format -> output -> template -> parallel -> API key
-func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diarize bool, parallel int) error {
+// Validation order: file exists -> format -> output -> template -> language -> parallel -> API key
+func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diarize bool, parallel int, language, outputLang string) error {
 	ctx := cmd.Context()
 
 	// === VALIDATION (fail-fast) ===
@@ -122,10 +127,23 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diari
 		}
 	}
 
-	// 5. Parallel bounds (clamp to 1-10)
+	// 5. Language validation
+	if err := ValidateLanguage(language); err != nil {
+		return err
+	}
+	if err := ValidateLanguage(outputLang); err != nil {
+		return err
+	}
+
+	// 6. Output language requires template
+	if outputLang != "" && template == "" {
+		return fmt.Errorf("--output-lang requires --template (raw transcripts use the audio's language)")
+	}
+
+	// 7. Parallel bounds (clamp to 1-10)
 	parallel = clampParallel(parallel)
 
-	// 6. API key present
+	// 8. API key present
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		return fmt.Errorf("%w (set it with: export OPENAI_API_KEY=sk-...)", ErrAPIKeyMissing)
@@ -167,7 +185,10 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diari
 
 	client := openai.NewClient(apiKey)
 	transcriber := NewOpenAITranscriber(client)
-	opts := TranscribeOptions{Diarize: diarize}
+	opts := TranscribeOptions{
+		Diarize:  diarize,
+		Language: language,
+	}
 
 	// Transcribe with progress output
 	fmt.Fprintln(os.Stderr, "Transcribing...")
@@ -185,8 +206,14 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diari
 	if template != "" {
 		fmt.Fprintf(os.Stderr, "Restructuring with template '%s'...\n", template)
 
+		// Default output language to input language if not specified
+		effectiveOutputLang := outputLang
+		if effectiveOutputLang == "" && language != "" {
+			effectiveOutputLang = language
+		}
+
 		restructurer := NewOpenAIRestructurer(client)
-		finalOutput, err = restructurer.Restructure(ctx, transcript, template)
+		finalOutput, err = restructurer.Restructure(ctx, transcript, template, effectiveOutputLang)
 		if err != nil {
 			return err
 		}

@@ -26,6 +26,8 @@ func liveCmd() *cobra.Command {
 		device      string
 		loopback    bool
 		mix         bool
+		language    string
+		outputLang  string
 	)
 
 	cmd := &cobra.Command{
@@ -40,7 +42,9 @@ restructured using a template. Use --keep-audio to preserve the recording.
 Recording can be interrupted with Ctrl+C - partial audio will be saved.`,
 		Example: `  transcript live -d 2h -o ideas.md -t brainstorm
   transcript live -d 1h -t meeting --diarize --keep-audio
-  transcript live -d 1h --mix -t meeting     # Record video call with both sides`,
+  transcript live -d 1h --mix -t meeting     # Record video call with both sides
+  transcript live -d 30m -l en -t meeting    # English audio, English output
+  transcript live -d 1h -l fr --output-lang en -t brainstorm  # French audio, English output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Parse duration.
 			duration, err := time.ParseDuration(durationStr)
@@ -57,15 +61,17 @@ Recording can be interrupted with Ctrl+C - partial audio will be saved.`,
 			}
 
 			return runLive(cmd.Context(), liveOptions{
-				duration:  duration,
-				output:    output,
-				template:  template,
-				diarize:   diarize,
-				parallel:  parallel,
-				keepAudio: keepAudio,
-				device:    device,
-				loopback:  loopback,
-				mix:       mix,
+				duration:   duration,
+				output:     output,
+				template:   template,
+				diarize:    diarize,
+				parallel:   parallel,
+				keepAudio:  keepAudio,
+				device:     device,
+				loopback:   loopback,
+				mix:        mix,
+				language:   language,
+				outputLang: outputLang,
 			})
 		},
 	}
@@ -81,6 +87,8 @@ Recording can be interrupted with Ctrl+C - partial audio will be saved.`,
 	cmd.Flags().StringVarP(&template, "template", "t", "", "Restructure template: brainstorm, meeting, lecture")
 	cmd.Flags().BoolVar(&diarize, "diarize", false, "Enable speaker identification")
 	cmd.Flags().IntVarP(&parallel, "parallel", "p", 3, "Max concurrent API requests (1-10)")
+	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
+	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language for restructured text (requires --template)")
 
 	// Live-specific flags.
 	cmd.Flags().BoolVar(&keepAudio, "keep-audio", false, "Keep the audio file after transcription")
@@ -96,15 +104,17 @@ Recording can be interrupted with Ctrl+C - partial audio will be saved.`,
 
 // liveOptions holds validated options for the live command.
 type liveOptions struct {
-	duration  time.Duration
-	output    string // Markdown output path
-	template  string
-	diarize   bool
-	parallel  int
-	keepAudio bool
-	device    string
-	loopback  bool
-	mix       bool
+	duration   time.Duration
+	output     string // Markdown output path
+	template   string
+	diarize    bool
+	parallel   int
+	keepAudio  bool
+	device     string
+	loopback   bool
+	mix        bool
+	language   string // Audio input language (ISO 639-1)
+	outputLang string // Output language for restructuring
 }
 
 // audioOutputPath derives the audio file path from the markdown output path.
@@ -150,12 +160,25 @@ func validateLiveEnv(ctx context.Context, opts liveOptions) (*liveEnv, error) {
 		}
 	}
 
-	// 4. Output file doesn't exist
+	// 4. Language validation
+	if err := ValidateLanguage(opts.language); err != nil {
+		return nil, err
+	}
+	if err := ValidateLanguage(opts.outputLang); err != nil {
+		return nil, err
+	}
+
+	// 5. Output language requires template
+	if opts.outputLang != "" && opts.template == "" {
+		return nil, fmt.Errorf("--output-lang requires --template (raw transcripts use the audio's language)")
+	}
+
+	// 6. Output file doesn't exist
 	if _, err := os.Stat(opts.output); err == nil {
 		return nil, fmt.Errorf("output file already exists: %s: %w", opts.output, ErrOutputExists)
 	}
 
-	// 5. Audio output path doesn't exist (if --keep-audio)
+	// 7. Audio output path doesn't exist (if --keep-audio)
 	audioPath := audioOutputPath(opts.output)
 	if opts.keepAudio {
 		if _, err := os.Stat(audioPath); err == nil {
@@ -163,7 +186,7 @@ func validateLiveEnv(ctx context.Context, opts liveOptions) (*liveEnv, error) {
 		}
 	}
 
-	// 6. Loopback device available (if needed)
+	// 8. Loopback device available (if needed)
 	if opts.loopback || opts.mix {
 		if _, err := detectLoopbackDevice(ctx, ffmpegPath); err != nil {
 			return nil, err
@@ -271,7 +294,10 @@ func liveTranscribePhase(ctx context.Context, env *liveEnv, opts liveOptions, au
 
 	client := openai.NewClient(env.apiKey)
 	transcriber := NewOpenAITranscriber(client)
-	transcribeOpts := TranscribeOptions{Diarize: opts.diarize}
+	transcribeOpts := TranscribeOptions{
+		Diarize:  opts.diarize,
+		Language: opts.language,
+	}
 
 	fmt.Fprintln(os.Stderr, "Transcribing...")
 
@@ -295,10 +321,16 @@ func liveRestructurePhase(ctx context.Context, env *liveEnv, opts liveOptions, t
 
 	fmt.Fprintf(os.Stderr, "Restructuring with template '%s'...\n", opts.template)
 
+	// Default output language to input language if not specified
+	effectiveOutputLang := opts.outputLang
+	if effectiveOutputLang == "" && opts.language != "" {
+		effectiveOutputLang = opts.language
+	}
+
 	client := openai.NewClient(env.apiKey)
 	restructurer := NewOpenAIRestructurer(client)
 
-	result, err := restructurer.Restructure(ctx, transcript, opts.template)
+	result, err := restructurer.Restructure(ctx, transcript, opts.template, effectiveOutputLang)
 	if err != nil {
 		if ctx.Err() != nil && opts.keepAudio {
 			fmt.Fprintf(os.Stderr, "\nRestructuring interrupted. Audio is available at: %s\n", audioPath)
