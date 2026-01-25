@@ -31,13 +31,14 @@ func (e *deviceError) Unwrap() error {
 }
 
 // FFmpegRecorder records audio using FFmpeg.
-// It supports macOS (avfoundation), Linux (alsa), and Windows (dshow).
+// It supports macOS (avfoundation), Linux (alsa/pulse), and Windows (dshow).
 type FFmpegRecorder struct {
-	ffmpegPath string
-	device     string // Empty string means auto-detect default device.
+	ffmpegPath  string
+	device      string      // Empty string means auto-detect default device.
+	captureMode CaptureMode // Microphone, loopback, or mix.
 }
 
-// NewFFmpegRecorder creates a new FFmpegRecorder.
+// NewFFmpegRecorder creates a new FFmpegRecorder for microphone capture.
 // ffmpegPath must be a valid path to the FFmpeg binary.
 // device can be empty for auto-detection, or a specific device name:
 //   - macOS: ":0" or ":DeviceName"
@@ -48,8 +49,50 @@ func NewFFmpegRecorder(ffmpegPath, device string) (*FFmpegRecorder, error) {
 		return nil, fmt.Errorf("ffmpegPath cannot be empty: %w", ErrFFmpegNotFound)
 	}
 	return &FFmpegRecorder{
-		ffmpegPath: ffmpegPath,
-		device:     device,
+		ffmpegPath:  ffmpegPath,
+		device:      device,
+		captureMode: CaptureMicrophone,
+	}, nil
+}
+
+// NewFFmpegLoopbackRecorder creates a recorder for system audio (loopback) capture.
+// It auto-detects the loopback device (BlackHole on macOS, PulseAudio monitor on Linux,
+// Stereo Mix or virtual-audio-capturer on Windows).
+// Returns ErrLoopbackNotFound with installation instructions if no device found.
+func NewFFmpegLoopbackRecorder(ctx context.Context, ffmpegPath string) (*FFmpegRecorder, error) {
+	if ffmpegPath == "" {
+		return nil, fmt.Errorf("ffmpegPath cannot be empty: %w", ErrFFmpegNotFound)
+	}
+
+	loopback, err := detectLoopbackDevice(ctx, ffmpegPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FFmpegRecorder{
+		ffmpegPath:  ffmpegPath,
+		device:      loopback.name,
+		captureMode: CaptureLoopback,
+	}, nil
+}
+
+// NewFFmpegMixRecorder creates a recorder that captures both microphone and system audio.
+// This is useful for recording video calls where you want both your voice and the remote audio.
+// Returns ErrLoopbackNotFound if the loopback device is not available.
+func NewFFmpegMixRecorder(ctx context.Context, ffmpegPath, micDevice string) (*FFmpegRecorder, error) {
+	if ffmpegPath == "" {
+		return nil, fmt.Errorf("ffmpegPath cannot be empty: %w", ErrFFmpegNotFound)
+	}
+
+	_, err := detectLoopbackDevice(ctx, ffmpegPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FFmpegRecorder{
+		ffmpegPath:  ffmpegPath,
+		device:      micDevice, // Will be resolved in Record()
+		captureMode: CaptureMix,
 	}, nil
 }
 
@@ -58,6 +101,18 @@ func NewFFmpegRecorder(ffmpegPath, device string) (*FFmpegRecorder, error) {
 // If device is empty, it auto-detects the default audio input device.
 // Recording can be interrupted via context cancellation (Ctrl+C).
 func (r *FFmpegRecorder) Record(ctx context.Context, duration time.Duration, output string) error {
+	switch r.captureMode {
+	case CaptureLoopback:
+		return r.recordLoopback(ctx, duration, output)
+	case CaptureMix:
+		return r.recordMix(ctx, duration, output)
+	default:
+		return r.recordMicrophone(ctx, duration, output)
+	}
+}
+
+// recordMicrophone records from the microphone input device.
+func (r *FFmpegRecorder) recordMicrophone(ctx context.Context, duration time.Duration, output string) error {
 	device := r.device
 	if device == "" {
 		detected, err := r.detectDefaultDevice(ctx)
@@ -71,14 +126,81 @@ func (r *FFmpegRecorder) Record(ctx context.Context, duration time.Duration, out
 	inputArg := formatInputArg(format, device)
 
 	args := []string{
-		"-y",                                   // Overwrite output without asking.
-		"-f", format,                           // Input format (avfoundation/alsa/dshow).
-		"-i", inputArg,                         // Input device.
+		"-y",                                        // Overwrite output without asking.
+		"-f", format,                                // Input format (avfoundation/alsa/dshow).
+		"-i", inputArg,                              // Input device.
 		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
-		"-c:a", "libvorbis",                    // OGG Vorbis codec.
-		"-ar", "16000",                         // 16kHz sample rate.
-		"-ac", "1",                             // Mono.
-		"-q:a", "2",                            // Quality ~50kbps.
+		"-c:a", "libvorbis",                         // OGG Vorbis codec.
+		"-ar", "16000",                              // 16kHz sample rate.
+		"-ac", "1",                                  // Mono.
+		"-q:a", "2",                                 // Quality ~50kbps.
+		output,
+	}
+
+	return runFFmpegGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
+}
+
+// recordLoopback records from the loopback device (system audio).
+func (r *FFmpegRecorder) recordLoopback(ctx context.Context, duration time.Duration, output string) error {
+	// Loopback device is already resolved in NewFFmpegLoopbackRecorder
+	// and stored in r.device with the appropriate format.
+	loopback, err := detectLoopbackDevice(ctx, r.ffmpegPath)
+	if err != nil {
+		return err
+	}
+
+	args := []string{
+		"-y",                                        // Overwrite output without asking.
+		"-f", loopback.format,                       // Input format (avfoundation/pulse/dshow).
+		"-i", loopback.name,                         // Loopback device.
+		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
+		"-c:a", "libvorbis",                         // OGG Vorbis codec.
+		"-ar", "16000",                              // 16kHz sample rate.
+		"-ac", "1",                                  // Mono.
+		"-q:a", "2",                                 // Quality ~50kbps.
+		output,
+	}
+
+	return runFFmpegGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
+}
+
+// recordMix records both microphone and loopback mixed together.
+func (r *FFmpegRecorder) recordMix(ctx context.Context, duration time.Duration, output string) error {
+	// Get microphone device
+	micDevice := r.device
+	if micDevice == "" {
+		detected, err := r.detectDefaultDevice(ctx)
+		if err != nil {
+			return err
+		}
+		micDevice = detected
+	}
+
+	// Get loopback device
+	loopback, err := detectLoopbackDevice(ctx, r.ffmpegPath)
+	if err != nil {
+		return err
+	}
+
+	micFormat := inputFormat()
+	micInputArg := formatInputArg(micFormat, micDevice)
+
+	// Build FFmpeg command with two inputs and amix filter
+	args := []string{
+		"-y", // Overwrite output without asking.
+		// Input 1: Microphone
+		"-f", micFormat,
+		"-i", micInputArg,
+		// Input 2: Loopback
+		"-f", loopback.format,
+		"-i", loopback.name,
+		// Mix both inputs
+		"-filter_complex", "amix=inputs=2:duration=first:dropout_transition=2",
+		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
+		"-c:a", "libvorbis", // OGG Vorbis codec.
+		"-ar", "16000",      // 16kHz sample rate.
+		"-ac", "1",          // Mono.
+		"-q:a", "2",         // Quality ~50kbps.
 		output,
 	}
 
