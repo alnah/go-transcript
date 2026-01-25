@@ -326,8 +326,17 @@ func liveRestructurePhase(ctx context.Context, env *liveEnv, opts liveOptions, t
 
 	client := openai.NewClient(env.apiKey)
 	restructurer := NewOpenAIRestructurer(client)
+	mrRestructurer := NewMapReduceRestructurer(restructurer,
+		WithMapReduceProgress(func(phase string, current, total int) {
+			if phase == "map" {
+				fmt.Fprintf(os.Stderr, "  Processing part %d/%d...\n", current, total)
+			} else {
+				fmt.Fprintln(os.Stderr, "  Merging parts...")
+			}
+		}),
+	)
 
-	result, err := restructurer.Restructure(ctx, transcript, opts.template, effectiveOutputLang)
+	result, _, err := mrRestructurer.Restructure(ctx, transcript, opts.template, effectiveOutputLang)
 	if err != nil {
 		if opts.keepAudio {
 			fmt.Fprintf(os.Stderr, "\nRestructuring failed. Audio is available at: %s\n", audioPath)

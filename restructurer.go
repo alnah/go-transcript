@@ -170,6 +170,26 @@ func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templa
 	return r.restructureWithRetry(ctx, req)
 }
 
+// restructureWithCustomPrompt executes restructuring with a custom prompt (used by MapReduce).
+// Unlike Restructure, this does not resolve templates or check token limits.
+func (r *OpenAIRestructurer) restructureWithCustomPrompt(ctx context.Context, content, prompt string) (string, error) {
+	req := openai.ChatCompletionRequest{
+		Model: r.model,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: prompt,
+			},
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: content,
+			},
+		},
+		Temperature: 0,
+	}
+	return r.restructureWithRetry(ctx, req)
+}
+
 // restructureWithRetry executes the restructuring with exponential backoff retry.
 func (r *OpenAIRestructurer) restructureWithRetry(ctx context.Context, req openai.ChatCompletionRequest) (string, error) {
 	cfg := retryConfig{

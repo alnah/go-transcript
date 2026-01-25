@@ -218,7 +218,17 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diari
 		}
 
 		restructurer := NewOpenAIRestructurer(client)
-		finalOutput, err = restructurer.Restructure(ctx, transcript, template, effectiveOutputLang)
+		mrRestructurer := NewMapReduceRestructurer(restructurer,
+			WithMapReduceProgress(func(phase string, current, total int) {
+				if phase == "map" {
+					fmt.Fprintf(os.Stderr, "  Processing part %d/%d...\n", current, total)
+				} else {
+					fmt.Fprintln(os.Stderr, "  Merging parts...")
+				}
+			}),
+		)
+
+		finalOutput, _, err = mrRestructurer.Restructure(ctx, transcript, template, effectiveOutputLang)
 		if err != nil {
 			return err
 		}
