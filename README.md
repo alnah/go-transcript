@@ -47,4 +47,4 @@ make check    # Run all checks (fmt, vet, lint, test)
 
 ## License
 
-MIT
+BSD 3-Clause - see [LICENSE](LICENSE)
