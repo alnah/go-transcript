@@ -443,6 +443,8 @@ func parseSilenceOutput(output string) []silencePoint {
 }
 
 // selectCutPoints chooses silence midpoints that keep chunks under maxChunkSize.
+// Uses a greedy algorithm: accumulate silences as candidates until the next
+// silence would exceed maxDuration, then cut at the last valid candidate.
 func (sc *SilenceChunker) selectCutPoints(silences []silencePoint, bytesPerSecond float64) []time.Duration {
 	if len(silences) == 0 {
 		return nil
@@ -453,19 +455,34 @@ func (sc *SilenceChunker) selectCutPoints(silences []silencePoint, bytesPerSecon
 
 	var cutPoints []time.Duration
 	lastCut := time.Duration(0)
+	var candidate *time.Duration // Last valid cut point before exceeding maxDuration
 
 	for _, silence := range silences {
-		// Check if we need to cut before this silence.
-		durationSinceCut := silence.midpoint() - lastCut
-		if durationSinceCut >= maxDuration {
-			// We've exceeded max duration, use this silence as cut point.
-			cutPoints = append(cutPoints, silence.midpoint())
-			lastCut = silence.midpoint()
+		mid := silence.midpoint()
+		durationSinceCut := mid - lastCut
+
+		if durationSinceCut < maxDuration {
+			// This silence is a valid candidate (chunk would be under limit).
+			candidate = &mid
+		} else {
+			// We've exceeded max duration.
+			if candidate != nil {
+				// Cut at the last valid candidate.
+				cutPoints = append(cutPoints, *candidate)
+				lastCut = *candidate
+				candidate = nil
+				// Re-evaluate current silence from new lastCut.
+				if mid-lastCut < maxDuration {
+					candidate = &mid
+				}
+			} else {
+				// No valid candidate available, must cut here even though over limit.
+				cutPoints = append(cutPoints, mid)
+				lastCut = mid
+			}
 		}
 	}
 
-	// If no cuts were needed (file fits in one chunk), return empty.
-	// If the last segment would be too long, we've already added cuts.
 	return cutPoints
 }
 
