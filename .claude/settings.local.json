@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(make build:*)",
+      "Bash(staticcheck:*)",
+      "Bash(./go-transcript:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go build:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(/tmp/transcript:*)",
+      "Bash(echo:*)",
+      "Bash(OPENAI_API_KEY=\"sk-test\" /tmp/transcript:*)",
+      "Bash(./transcript record:*)",
+      "Bash(go fmt:*)",
+      "Bash(gh run list:*)"
+    ]
+  }
+}

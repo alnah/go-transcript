@@ -27,11 +27,11 @@ const interruptWindow = 2 * time.Second
 // First Ctrl+C triggers early stop with continuation.
 // Second Ctrl+C within the window triggers abort.
 type InterruptHandler struct {
-	mu            sync.Mutex
+	mu             sync.Mutex
 	firstInterrupt time.Time
-	interrupted   bool
-	aborted       bool
-	cancelFunc    context.CancelFunc
+	interrupted    bool
+	aborted        bool
+	cancelFunc     context.CancelFunc
 }
 
 // NewInterruptHandler creates a handler that listens for SIGINT/SIGTERM.

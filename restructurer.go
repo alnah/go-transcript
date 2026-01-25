@@ -47,12 +47,12 @@ type RestructurerOption func(*OpenAIRestructurer)
 
 // Default configuration values.
 const (
-	defaultRestructureModel        = "gpt-4o-mini"
-	defaultMaxInputTokens          = 100000
-	defaultCharsPerToken           = 3 // Conservative for French text
-	defaultRestructureMaxRetries   = 3 // Fewer retries than transcriber (longer latency)
-	defaultRestructureBaseDelay    = 1 * time.Second
-	defaultRestructureMaxDelay     = 30 * time.Second
+	defaultRestructureModel      = "gpt-4o-mini"
+	defaultMaxInputTokens        = 100000
+	defaultCharsPerToken         = 3 // Conservative for French text
+	defaultRestructureMaxRetries = 3 // Fewer retries than transcriber (longer latency)
+	defaultRestructureBaseDelay  = 1 * time.Second
+	defaultRestructureMaxDelay   = 30 * time.Second
 )
 
 // WithModel sets the model for restructuring.

@@ -130,14 +130,14 @@ func (r *FFmpegRecorder) recordMicrophone(ctx context.Context, duration time.Dur
 	inputArg := formatInputArg(format, device)
 
 	args := []string{
-		"-y",                                        // Overwrite output without asking.
-		"-f", format,                                // Input format (avfoundation/alsa/dshow).
-		"-i", inputArg,                              // Input device.
+		"-y",         // Overwrite output without asking.
+		"-f", format, // Input format (avfoundation/alsa/dshow).
+		"-i", inputArg, // Input device.
 		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
-		"-c:a", "libvorbis",                         // OGG Vorbis codec.
-		"-ar", "16000",                              // 16kHz sample rate.
-		"-ac", "1",                                  // Mono.
-		"-q:a", "2",                                 // Quality ~50kbps.
+		"-c:a", "libvorbis", // OGG Vorbis codec.
+		"-ar", "16000", // 16kHz sample rate.
+		"-ac", "1", // Mono.
+		"-q:a", "2", // Quality ~50kbps.
 		output,
 	}
 
@@ -148,14 +148,14 @@ func (r *FFmpegRecorder) recordMicrophone(ctx context.Context, duration time.Dur
 func (r *FFmpegRecorder) recordLoopback(ctx context.Context, duration time.Duration, output string) error {
 	// Loopback device was detected and cached in NewFFmpegLoopbackRecorder.
 	args := []string{
-		"-y",                                        // Overwrite output without asking.
-		"-f", r.loopback.format,                     // Input format (avfoundation/pulse/dshow).
-		"-i", r.loopback.name,                       // Loopback device.
+		"-y",                    // Overwrite output without asking.
+		"-f", r.loopback.format, // Input format (avfoundation/pulse/dshow).
+		"-i", r.loopback.name, // Loopback device.
 		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
-		"-c:a", "libvorbis",                         // OGG Vorbis codec.
-		"-ar", "16000",                              // 16kHz sample rate.
-		"-ac", "1",                                  // Mono.
-		"-q:a", "2",                                 // Quality ~50kbps.
+		"-c:a", "libvorbis", // OGG Vorbis codec.
+		"-ar", "16000", // 16kHz sample rate.
+		"-ac", "1", // Mono.
+		"-q:a", "2", // Quality ~50kbps.
 		output,
 	}
 
@@ -191,9 +191,9 @@ func (r *FFmpegRecorder) recordMix(ctx context.Context, duration time.Duration, 
 		"-filter_complex", "amix=inputs=2:duration=first:dropout_transition=2",
 		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
 		"-c:a", "libvorbis", // OGG Vorbis codec.
-		"-ar", "16000",      // 16kHz sample rate.
-		"-ac", "1",          // Mono.
-		"-q:a", "2",         // Quality ~50kbps.
+		"-ar", "16000", // 16kHz sample rate.
+		"-ac", "1", // Mono.
+		"-q:a", "2", // Quality ~50kbps.
 		output,
 	}
 
