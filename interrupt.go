@@ -32,20 +32,57 @@ type InterruptHandler struct {
 	interrupted    bool
 	aborted        bool
 	cancelFunc     context.CancelFunc
+
+	// Injected dependencies (for testing)
+	exitFunc func(int)
+	nowFunc  func() time.Time
+	stderr   interface{ Write([]byte) (int, error) }
+}
+
+// interruptOptions holds injectable dependencies for testing.
+type interruptOptions struct {
+	sigCh    <-chan os.Signal
+	exitFunc func(int)
+	nowFunc  func() time.Time
+	stderr   interface{ Write([]byte) (int, error) }
 }
 
 // NewInterruptHandler creates a handler that listens for SIGINT/SIGTERM.
 // Returns the handler and a context that is canceled on first interrupt.
 func NewInterruptHandler(parent context.Context) (*InterruptHandler, context.Context) {
-	ctx, cancel := context.WithCancel(parent)
-	h := &InterruptHandler{
-		cancelFunc: cancel,
-	}
-
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	go h.listen(sigCh)
+	return newInterruptHandler(parent, interruptOptions{sigCh: sigCh})
+}
+
+// newInterruptHandler creates a handler with injectable dependencies.
+// Used by tests to inject mock signal channels, exit functions, and clocks.
+func newInterruptHandler(parent context.Context, opts interruptOptions) (*InterruptHandler, context.Context) {
+	ctx, cancel := context.WithCancel(parent)
+
+	// Apply defaults for nil options
+	exitFunc := opts.exitFunc
+	if exitFunc == nil {
+		exitFunc = os.Exit
+	}
+	nowFunc := opts.nowFunc
+	if nowFunc == nil {
+		nowFunc = time.Now
+	}
+	stderr := opts.stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+
+	h := &InterruptHandler{
+		cancelFunc: cancel,
+		exitFunc:   exitFunc,
+		nowFunc:    nowFunc,
+		stderr:     stderr,
+	}
+
+	go h.listen(opts.sigCh)
 
 	return h, ctx
 }
@@ -54,7 +91,7 @@ func NewInterruptHandler(parent context.Context) (*InterruptHandler, context.Con
 func (h *InterruptHandler) listen(sigCh <-chan os.Signal) {
 	for range sigCh {
 		h.mu.Lock()
-		now := time.Now()
+		now := h.nowFunc()
 
 		if !h.interrupted {
 			// First interrupt
@@ -70,8 +107,9 @@ func (h *InterruptHandler) listen(sigCh <-chan os.Signal) {
 			h.aborted = true
 			h.mu.Unlock()
 			// Exit immediately on double Ctrl+C
-			fmt.Fprintln(os.Stderr, "\nAborted.")
-			os.Exit(ExitInterrupt)
+			fmt.Fprintln(h.stderr, "\nAborted.")
+			h.exitFunc(ExitInterrupt)
+			return // In case exitFunc doesn't actually exit (tests)
 		}
 
 		h.mu.Unlock()
@@ -103,14 +141,14 @@ func (h *InterruptHandler) WaitForDecision(message string) InterruptBehavior {
 	h.mu.Unlock()
 
 	// Calculate remaining time in window
-	elapsed := time.Since(firstInterrupt)
+	elapsed := h.nowFunc().Sub(firstInterrupt)
 	remaining := interruptWindow - elapsed
 	if remaining <= 0 {
 		return InterruptContinue
 	}
 
 	// Display message and wait
-	fmt.Fprintln(os.Stderr, message)
+	fmt.Fprintln(h.stderr, message)
 
 	// Wait for remaining time or abort
 	ticker := time.NewTicker(100 * time.Millisecond)
