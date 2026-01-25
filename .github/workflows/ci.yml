@@ -54,8 +54,11 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
       - name: Run staticcheck
-        run: go tool staticcheck ./...
+        run: staticcheck ./...
 
   security:
     runs-on: ubuntu-latest
@@ -68,8 +71,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
       - name: Run gosec
-        run: go tool gosec ./...
+        run: gosec -quiet ./...
 
   build:
     needs: [test, lint]

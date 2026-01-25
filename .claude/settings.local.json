@@ -16,7 +16,9 @@
       "Bash(OPENAI_API_KEY=\"sk-test\" /tmp/transcript:*)",
       "Bash(./transcript record:*)",
       "Bash(go fmt:*)",
-      "Bash(gh run list:*)"
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(git push:*)"
     ]
   }
 }
