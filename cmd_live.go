@@ -1,0 +1,417 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	openai "github.com/sashabaranov/go-openai"
+	"github.com/spf13/cobra"
+)
+
+// liveCmd creates the live command (record + transcribe in one step).
+func liveCmd() *cobra.Command {
+	var (
+		durationStr string
+		output      string
+		template    string
+		diarize     bool
+		parallel    int
+		keepAudio   bool
+		device      string
+		loopback    bool
+		mix         bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "live",
+		Short: "Record and transcribe in one command",
+		Long: `Record audio and transcribe it in a single operation.
+
+This command combines 'record' and 'transcribe' for convenience.
+The audio is recorded to a temporary file, transcribed, and optionally
+restructured using a template. Use --keep-audio to preserve the recording.
+
+Recording can be interrupted with Ctrl+C - partial audio will be saved.`,
+		Example: `  transcript live -d 2h -o ideas.md -t brainstorm
+  transcript live -d 1h -t meeting --diarize --keep-audio
+  transcript live -d 1h --mix -t meeting     # Record video call with both sides`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Parse duration.
+			duration, err := time.ParseDuration(durationStr)
+			if err != nil {
+				return fmt.Errorf("invalid duration %q: %w (use format like 2h, 30m, 1h30m)", durationStr, ErrInvalidDuration)
+			}
+			if duration <= 0 {
+				return fmt.Errorf("duration must be positive: %w", ErrInvalidDuration)
+			}
+
+			// Resolve output path.
+			if output == "" {
+				output = defaultLiveFilename()
+			}
+
+			return runLive(cmd.Context(), liveOptions{
+				duration:  duration,
+				output:    output,
+				template:  template,
+				diarize:   diarize,
+				parallel:  parallel,
+				keepAudio: keepAudio,
+				device:    device,
+				loopback:  loopback,
+				mix:       mix,
+			})
+		},
+	}
+
+	// Recording flags.
+	cmd.Flags().StringVarP(&durationStr, "duration", "d", "", "Recording duration (e.g., 2h, 30m, 1h30m)")
+	cmd.Flags().StringVar(&device, "device", "", "Audio input device (default: system default)")
+	cmd.Flags().BoolVar(&loopback, "loopback", false, "Capture system audio instead of microphone")
+	cmd.Flags().BoolVar(&mix, "mix", false, "Capture both microphone and system audio")
+
+	// Transcription flags.
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (default: transcript_<timestamp>.md)")
+	cmd.Flags().StringVarP(&template, "template", "t", "", "Restructure template: brainstorm, meeting, lecture")
+	cmd.Flags().BoolVar(&diarize, "diarize", false, "Enable speaker identification")
+	cmd.Flags().IntVarP(&parallel, "parallel", "p", 3, "Max concurrent API requests (1-10)")
+
+	// Live-specific flags.
+	cmd.Flags().BoolVar(&keepAudio, "keep-audio", false, "Keep the audio file after transcription")
+
+	// Duration is required.
+	_ = cmd.MarkFlagRequired("duration")
+
+	// Loopback and mix are mutually exclusive.
+	cmd.MarkFlagsMutuallyExclusive("loopback", "mix")
+
+	return cmd
+}
+
+// liveOptions holds validated options for the live command.
+type liveOptions struct {
+	duration  time.Duration
+	output    string // Markdown output path
+	template  string
+	diarize   bool
+	parallel  int
+	keepAudio bool
+	device    string
+	loopback  bool
+	mix       bool
+}
+
+// audioOutputPath derives the audio file path from the markdown output path.
+// Example: "notes.md" -> "notes.ogg"
+func audioOutputPath(mdPath string) string {
+	ext := filepath.Ext(mdPath)
+	return strings.TrimSuffix(mdPath, ext) + ".ogg"
+}
+
+// defaultLiveFilename generates a default output filename with timestamp.
+// Format: transcript_20260125_143052.md
+func defaultLiveFilename() string {
+	return fmt.Sprintf("transcript_%s.md", time.Now().Format("20060102_150405"))
+}
+
+// liveEnv holds validated environment for live command execution.
+type liveEnv struct {
+	apiKey     string
+	ffmpegPath string
+	audioPath  string // Final audio path (if --keep-audio)
+	parallel   int
+}
+
+// validateLiveEnv performs fail-fast validation before any I/O.
+func validateLiveEnv(ctx context.Context, opts liveOptions) (*liveEnv, error) {
+	// 1. API key present
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("%w (set it with: export OPENAI_API_KEY=sk-...)", ErrAPIKeyMissing)
+	}
+
+	// 2. FFmpeg available (may auto-download)
+	ffmpegPath, err := resolveFFmpeg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	checkFFmpegVersion(ctx, ffmpegPath)
+
+	// 3. Template valid (if specified)
+	if opts.template != "" {
+		if _, err := GetTemplate(opts.template); err != nil {
+			return nil, err
+		}
+	}
+
+	// 4. Output file doesn't exist
+	if _, err := os.Stat(opts.output); err == nil {
+		return nil, fmt.Errorf("output file already exists: %s: %w", opts.output, ErrOutputExists)
+	}
+
+	// 5. Audio output path doesn't exist (if --keep-audio)
+	audioPath := audioOutputPath(opts.output)
+	if opts.keepAudio {
+		if _, err := os.Stat(audioPath); err == nil {
+			return nil, fmt.Errorf("audio file already exists: %s: %w", audioPath, ErrOutputExists)
+		}
+	}
+
+	// 6. Loopback device available (if needed)
+	if opts.loopback || opts.mix {
+		if _, err := detectLoopbackDevice(ctx, ffmpegPath); err != nil {
+			return nil, err
+		}
+	}
+
+	return &liveEnv{
+		apiKey:     apiKey,
+		ffmpegPath: ffmpegPath,
+		audioPath:  audioPath,
+		parallel:   clampParallel(opts.parallel),
+	}, nil
+}
+
+// liveRecordResult holds the result of the recording phase.
+type liveRecordResult struct {
+	audioPath      string // Path to the recorded audio
+	tempDir        string // Temp directory to cleanup (empty if --keep-audio moved the file)
+	cleanupTempDir bool   // Whether to cleanup tempDir on exit
+}
+
+// liveRecordPhase executes the recording phase.
+func liveRecordPhase(ctx context.Context, env *liveEnv, opts liveOptions) (*liveRecordResult, error) {
+	// Create temporary file for recording
+	tempDir, err := os.MkdirTemp("", "go-transcript-live-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	tempAudioPath := filepath.Join(tempDir, "recording.ogg")
+
+	result := &liveRecordResult{
+		audioPath:      tempAudioPath,
+		tempDir:        tempDir,
+		cleanupTempDir: true,
+	}
+
+	// Create recorder
+	recorder, err := createRecorder(ctx, env.ffmpegPath, opts.device, opts.loopback, opts.mix)
+	if err != nil {
+		return result, err
+	}
+
+	fmt.Fprintf(os.Stderr, "Recording for %s... (press Ctrl+C to stop early)\n", formatDurationHuman(opts.duration))
+
+	// Record to temp file
+	recordErr := recorder.Record(ctx, opts.duration, tempAudioPath)
+
+	// Check for interrupt during recording
+	if ctx.Err() != nil {
+		if size, statErr := fileSize(tempAudioPath); statErr == nil && size > 0 {
+			fmt.Fprintf(os.Stderr, "\nRecording interrupted. Partial audio saved to: %s (%s)\n",
+				tempAudioPath, formatSize(size))
+			result.cleanupTempDir = false // Keep temp dir for recovery
+		}
+		return result, ctx.Err()
+	}
+
+	if recordErr != nil {
+		return result, recordErr
+	}
+
+	// Verify recording produced non-empty file
+	audioSize, err := fileSize(tempAudioPath)
+	if err != nil {
+		return result, fmt.Errorf("recording failed: output file not created")
+	}
+	if audioSize == 0 {
+		return result, fmt.Errorf("recording produced empty file (check your audio device)")
+	}
+
+	fmt.Fprintf(os.Stderr, "Recording complete: %s\n", formatSize(audioSize))
+
+	// Move audio to final location if --keep-audio
+	if opts.keepAudio {
+		if err := moveFile(tempAudioPath, env.audioPath); err != nil {
+			return result, fmt.Errorf("failed to save audio file: %w", err)
+		}
+		result.audioPath = env.audioPath
+		fmt.Fprintf(os.Stderr, "Audio saved: %s\n", env.audioPath)
+	}
+
+	return result, nil
+}
+
+// liveTranscribePhase executes chunking and transcription.
+func liveTranscribePhase(ctx context.Context, env *liveEnv, opts liveOptions, audioPath string) (string, error) {
+	fmt.Fprintln(os.Stderr, "Detecting silences...")
+
+	chunker, err := NewSilenceChunker(env.ffmpegPath)
+	if err != nil {
+		return "", err
+	}
+
+	chunks, err := chunker.Chunk(ctx, audioPath)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if cleanupErr := CleanupChunks(chunks); cleanupErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to cleanup chunks: %v\n", cleanupErr)
+		}
+	}()
+
+	fmt.Fprintf(os.Stderr, "Chunking audio... %d chunks\n", len(chunks))
+
+	client := openai.NewClient(env.apiKey)
+	transcriber := NewOpenAITranscriber(client)
+	transcribeOpts := TranscribeOptions{Diarize: opts.diarize}
+
+	fmt.Fprintln(os.Stderr, "Transcribing...")
+
+	results, err := TranscribeAll(ctx, chunks, transcriber, transcribeOpts, env.parallel)
+	if err != nil {
+		if ctx.Err() != nil && opts.keepAudio {
+			fmt.Fprintf(os.Stderr, "\nTranscription interrupted. Audio is available at: %s\n", audioPath)
+		}
+		return "", err
+	}
+
+	fmt.Fprintln(os.Stderr, "Transcription complete")
+	return strings.Join(results, "\n\n"), nil
+}
+
+// liveRestructurePhase optionally restructures the transcript.
+func liveRestructurePhase(ctx context.Context, env *liveEnv, opts liveOptions, transcript, audioPath string) (string, error) {
+	if opts.template == "" {
+		return transcript, nil
+	}
+
+	fmt.Fprintf(os.Stderr, "Restructuring with template '%s'...\n", opts.template)
+
+	client := openai.NewClient(env.apiKey)
+	restructurer := NewOpenAIRestructurer(client)
+
+	result, err := restructurer.Restructure(ctx, transcript, opts.template)
+	if err != nil {
+		if ctx.Err() != nil && opts.keepAudio {
+			fmt.Fprintf(os.Stderr, "\nRestructuring interrupted. Audio is available at: %s\n", audioPath)
+		}
+		return "", err
+	}
+
+	return result, nil
+}
+
+// liveWritePhase writes the final output atomically.
+func liveWritePhase(output, content string) error {
+	f, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("output file already exists: %s: %w", output, ErrOutputExists)
+		}
+		return fmt.Errorf("cannot create output file: %w", err)
+	}
+
+	writeErr := func() error {
+		defer f.Close()
+		if _, err := f.WriteString(content); err != nil {
+			return fmt.Errorf("failed to write output: %w", err)
+		}
+		return nil
+	}()
+
+	if writeErr != nil {
+		_ = os.Remove(output)
+		return writeErr
+	}
+
+	fmt.Fprintf(os.Stderr, "Done: %s\n", output)
+	return nil
+}
+
+// runLive executes the live recording and transcription pipeline.
+func runLive(ctx context.Context, opts liveOptions) error {
+	// Validate environment (fail-fast)
+	env, err := validateLiveEnv(ctx, opts)
+	if err != nil {
+		return err
+	}
+
+	// Recording phase
+	recordResult, err := liveRecordPhase(ctx, env, opts)
+	if recordResult != nil && recordResult.cleanupTempDir && recordResult.tempDir != "" {
+		defer func() { _ = os.RemoveAll(recordResult.tempDir) }()
+	}
+	if err != nil {
+		return err
+	}
+
+	// Transcription phase
+	transcript, err := liveTranscribePhase(ctx, env, opts, recordResult.audioPath)
+	if err != nil {
+		return err
+	}
+
+	// Restructure phase (optional)
+	finalOutput, err := liveRestructurePhase(ctx, env, opts, transcript, recordResult.audioPath)
+	if err != nil {
+		return err
+	}
+
+	// Write output
+	return liveWritePhase(opts.output, finalOutput)
+}
+
+// moveFile moves a file from src to dst.
+// Uses os.Rename if possible (same filesystem), otherwise copies and removes.
+func moveFile(src, dst string) error {
+	// Try rename first (fast, atomic if same filesystem)
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+
+	// Rename failed (probably cross-filesystem), fall back to copy
+	return copyFile(src, dst)
+}
+
+// copyFile copies a file from src to dst, then removes src.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	// Get source file info for permissions
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, srcInfo.Mode())
+	if err != nil {
+		return err
+	}
+
+	_, copyErr := io.Copy(dstFile, srcFile)
+	closeErr := dstFile.Close()
+
+	if copyErr != nil {
+		_ = os.Remove(dst) // Clean up partial file
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(dst)
+		return closeErr
+	}
+
+	// Remove source file after successful copy
+	return os.Remove(src)
+}
