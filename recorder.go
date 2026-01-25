@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -34,8 +35,9 @@ func (e *deviceError) Unwrap() error {
 // It supports macOS (avfoundation), Linux (alsa/pulse), and Windows (dshow).
 type FFmpegRecorder struct {
 	ffmpegPath  string
-	device      string      // Empty string means auto-detect default device.
-	captureMode CaptureMode // Microphone, loopback, or mix.
+	device      string          // Empty string means auto-detect default device.
+	captureMode CaptureMode     // Microphone, loopback, or mix.
+	loopback    *loopbackDevice // Cached loopback device (for loopback/mix modes).
 }
 
 // NewFFmpegRecorder creates a new FFmpegRecorder for microphone capture.
@@ -73,6 +75,7 @@ func NewFFmpegLoopbackRecorder(ctx context.Context, ffmpegPath string) (*FFmpegR
 		ffmpegPath:  ffmpegPath,
 		device:      loopback.name,
 		captureMode: CaptureLoopback,
+		loopback:    loopback,
 	}, nil
 }
 
@@ -84,7 +87,7 @@ func NewFFmpegMixRecorder(ctx context.Context, ffmpegPath, micDevice string) (*F
 		return nil, fmt.Errorf("ffmpegPath cannot be empty: %w", ErrFFmpegNotFound)
 	}
 
-	_, err := detectLoopbackDevice(ctx, ffmpegPath)
+	loopback, err := detectLoopbackDevice(ctx, ffmpegPath)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +96,7 @@ func NewFFmpegMixRecorder(ctx context.Context, ffmpegPath, micDevice string) (*F
 		ffmpegPath:  ffmpegPath,
 		device:      micDevice, // Will be resolved in Record()
 		captureMode: CaptureMix,
+		loopback:    loopback,
 	}, nil
 }
 
@@ -142,17 +146,11 @@ func (r *FFmpegRecorder) recordMicrophone(ctx context.Context, duration time.Dur
 
 // recordLoopback records from the loopback device (system audio).
 func (r *FFmpegRecorder) recordLoopback(ctx context.Context, duration time.Duration, output string) error {
-	// Loopback device is already resolved in NewFFmpegLoopbackRecorder
-	// and stored in r.device with the appropriate format.
-	loopback, err := detectLoopbackDevice(ctx, r.ffmpegPath)
-	if err != nil {
-		return err
-	}
-
+	// Loopback device was detected and cached in NewFFmpegLoopbackRecorder.
 	args := []string{
 		"-y",                                        // Overwrite output without asking.
-		"-f", loopback.format,                       // Input format (avfoundation/pulse/dshow).
-		"-i", loopback.name,                         // Loopback device.
+		"-f", r.loopback.format,                     // Input format (avfoundation/pulse/dshow).
+		"-i", r.loopback.name,                       // Loopback device.
 		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
 		"-c:a", "libvorbis",                         // OGG Vorbis codec.
 		"-ar", "16000",                              // 16kHz sample rate.
@@ -176,12 +174,7 @@ func (r *FFmpegRecorder) recordMix(ctx context.Context, duration time.Duration, 
 		micDevice = detected
 	}
 
-	// Get loopback device
-	loopback, err := detectLoopbackDevice(ctx, r.ffmpegPath)
-	if err != nil {
-		return err
-	}
-
+	// Loopback device was detected and cached in NewFFmpegMixRecorder.
 	micFormat := inputFormat()
 	micInputArg := formatInputArg(micFormat, micDevice)
 
@@ -192,8 +185,8 @@ func (r *FFmpegRecorder) recordMix(ctx context.Context, duration time.Duration, 
 		"-f", micFormat,
 		"-i", micInputArg,
 		// Input 2: Loopback
-		"-f", loopback.format,
-		"-i", loopback.name,
+		"-f", r.loopback.format,
+		"-i", r.loopback.name,
 		// Mix both inputs
 		"-filter_complex", "amix=inputs=2:duration=first:dropout_transition=2",
 		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
@@ -240,8 +233,18 @@ func (r *FFmpegRecorder) detectDefaultDevice(ctx context.Context) (string, error
 
 // listDevices queries FFmpeg for available audio input devices.
 // The output format varies by OS, so we parse accordingly.
+// On Linux, prefers PulseAudio (pactl) over ALSA for better device discovery.
 func (r *FFmpegRecorder) listDevices(ctx context.Context) ([]string, error) {
 	format := inputFormat()
+
+	// On Linux, try PulseAudio first for better device discovery.
+	if runtime.GOOS == "linux" {
+		if devices := listPulseDevices(ctx); len(devices) > 0 {
+			return devices, nil
+		}
+		// Fall back to ALSA defaults.
+	}
+
 	args := listDevicesArgs(format)
 
 	stderr, err := runFFmpegOutput(ctx, r.ffmpegPath, args)
@@ -250,6 +253,17 @@ func (r *FFmpegRecorder) listDevices(ctx context.Context) ([]string, error) {
 	}
 
 	return parseDevices(format, stderr), nil
+}
+
+// listPulseDevices uses pactl to list PulseAudio sources (Linux).
+// Returns nil if pactl is not available or fails.
+func listPulseDevices(ctx context.Context) []string {
+	cmd := exec.CommandContext(ctx, "pactl", "list", "sources", "short")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	return parsePulseDevices(string(output))
 }
 
 // inputFormat returns the FFmpeg input format for the current OS.
@@ -315,16 +329,72 @@ func parseDevices(format, stderr string) []string {
 	}
 }
 
+// virtualAudioDevices lists known virtual audio devices that should be deprioritized.
+// These are typically used for screen sharing/loopback, not microphone input.
+// Cross-platform list covering macOS, Windows, and Linux.
+var virtualAudioDevices = []string{
+	// macOS
+	"AirBeamTV",
+	"ZoomAudioDevice",
+	"Microsoft Teams Audio",
+	"BlackHole",
+	"Soundflower",
+	"Loopback Audio",
+	// Windows
+	"Stereo Mix",
+	"Wave Out Mix",
+	"What U Hear",
+	"Lo que escucha", // Spanish locale
+	"CABLE Output",
+	"VB-Audio Virtual Cable",
+	"virtual-audio-capturer",
+	"VoiceMeeter",
+	// Linux (PulseAudio/PipeWire)
+	".monitor", // PulseAudio monitor devices (e.g., "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor")
+}
+
+// isVirtualAudioDevice checks if a device name matches a known virtual audio device.
+func isVirtualAudioDevice(name string) bool {
+	nameLower := strings.ToLower(name)
+	for _, virtual := range virtualAudioDevices {
+		if strings.Contains(nameLower, strings.ToLower(virtual)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isMicrophoneDevice checks if a device name looks like a real microphone.
+// Cross-platform patterns for macOS, Windows, and Linux.
+func isMicrophoneDevice(name string) bool {
+	nameLower := strings.ToLower(name)
+	return strings.Contains(nameLower, "micro") ||
+		strings.Contains(nameLower, "input") ||
+		strings.Contains(nameLower, "headset") ||
+		strings.Contains(nameLower, "webcam") ||
+		strings.Contains(nameLower, "usb audio") ||
+		// Linux-specific
+		strings.Contains(nameLower, "capture") ||
+		strings.Contains(nameLower, "analog-stereo") && !strings.Contains(nameLower, ".monitor") ||
+		// Windows-specific
+		strings.Contains(nameLower, "realtek") && strings.Contains(nameLower, "microphone")
+}
+
 // parseAVFoundationDevices parses macOS avfoundation device listing.
+// Returns devices sorted with real microphones first, virtual devices last.
 // Example output:
 //
 //	[AVFoundation indev @ 0x...] AVFoundation video devices:
 //	[AVFoundation indev @ 0x...] [0] FaceTime HD Camera
 //	[AVFoundation indev @ 0x...] AVFoundation audio devices:
-//	[AVFoundation indev @ 0x...] [0] MacBook Pro Microphone
-//	[AVFoundation indev @ 0x...] [1] External Microphone
+//	[AVFoundation indev @ 0x...] [0] AirBeamTV Audio
+//	[AVFoundation indev @ 0x...] [1] MacBook Pro Microphone
 func parseAVFoundationDevices(stderr string) []string {
-	var devices []string
+	type deviceInfo struct {
+		index string
+		name  string
+	}
+	var allDevices []deviceInfo
 	inAudioSection := false
 	lines := strings.Split(stderr, "\n")
 
@@ -342,15 +412,37 @@ func parseAVFoundationDevices(stderr string) []string {
 		}
 		if inAudioSection {
 			if matches := devicePattern.FindStringSubmatch(line); matches != nil {
-				// Return as ":index" format for FFmpeg -i argument.
-				devices = append(devices, ":"+matches[1])
+				allDevices = append(allDevices, deviceInfo{
+					index: matches[1],
+					name:  matches[2],
+				})
 			}
 		}
 	}
-	return devices
+
+	// Sort devices: real microphones first, then unknown, then virtual devices.
+	var microphones, unknown, virtual []string
+	for _, d := range allDevices {
+		deviceID := ":" + d.index
+		if isVirtualAudioDevice(d.name) {
+			virtual = append(virtual, deviceID)
+		} else if isMicrophoneDevice(d.name) {
+			microphones = append(microphones, deviceID)
+		} else {
+			unknown = append(unknown, deviceID)
+		}
+	}
+
+	// Combine: microphones first, then unknown, then virtual.
+	var result []string
+	result = append(result, microphones...)
+	result = append(result, unknown...)
+	result = append(result, virtual...)
+	return result
 }
 
 // parseDShowDevices parses Windows dshow device listing.
+// Returns devices sorted with real microphones first, virtual devices last.
 // Example output:
 //
 //	[dshow @ 0x...] DirectShow video devices
@@ -359,7 +451,7 @@ func parseAVFoundationDevices(stderr string) []string {
 //	[dshow @ 0x...]  "Microphone (Realtek High Definition Audio)"
 //	[dshow @ 0x...]  "Stereo Mix (Realtek High Definition Audio)"
 func parseDShowDevices(stderr string) []string {
-	var devices []string
+	var allDevices []string
 	inAudioSection := false
 	lines := strings.Split(stderr, "\n")
 
@@ -379,12 +471,30 @@ func parseDShowDevices(stderr string) []string {
 			if matches := devicePattern.FindStringSubmatch(line); matches != nil {
 				// Skip "Alternative name" lines.
 				if !strings.Contains(line, "Alternative name") {
-					devices = append(devices, matches[1])
+					allDevices = append(allDevices, matches[1])
 				}
 			}
 		}
 	}
-	return devices
+
+	// Sort devices: real microphones first, then unknown, then virtual devices.
+	var microphones, unknown, virtual []string
+	for _, name := range allDevices {
+		if isVirtualAudioDevice(name) {
+			virtual = append(virtual, name)
+		} else if isMicrophoneDevice(name) {
+			microphones = append(microphones, name)
+		} else {
+			unknown = append(unknown, name)
+		}
+	}
+
+	// Combine: microphones first, then unknown, then virtual.
+	var result []string
+	result = append(result, microphones...)
+	result = append(result, unknown...)
+	result = append(result, virtual...)
+	return result
 }
 
 // parseALSADevices returns default ALSA devices.
@@ -393,4 +503,43 @@ func parseDShowDevices(stderr string) []string {
 func parseALSADevices(_ string) []string {
 	// Return common ALSA defaults. The user may need to use --device for specific hardware.
 	return []string{"default", "hw:0", "plughw:0"}
+}
+
+// parsePulseDevices parses PulseAudio source listing for Linux.
+// Uses `pactl list sources short` output format:
+//
+//	0	alsa_output.pci-0000_00_1f.3.analog-stereo.monitor	module-alsa-card.c	s16le 2ch 44100Hz	IDLE
+//	1	alsa_input.pci-0000_00_1f.3.analog-stereo	module-alsa-card.c	s16le 2ch 44100Hz	IDLE
+//
+// Returns devices sorted with real microphones first, monitor devices last.
+func parsePulseDevices(output string) []string {
+	var allDevices []string
+	lines := strings.Split(output, "\n")
+
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			// Second field is the source name
+			allDevices = append(allDevices, fields[1])
+		}
+	}
+
+	// Sort devices: real microphones first, then unknown, then virtual/monitor devices.
+	var microphones, unknown, virtual []string
+	for _, name := range allDevices {
+		if isVirtualAudioDevice(name) {
+			virtual = append(virtual, name)
+		} else if isMicrophoneDevice(name) {
+			microphones = append(microphones, name)
+		} else {
+			unknown = append(unknown, name)
+		}
+	}
+
+	// Combine: microphones first, then unknown, then virtual.
+	var result []string
+	result = append(result, microphones...)
+	result = append(result, unknown...)
+	result = append(result, virtual...)
+	return result
 }
