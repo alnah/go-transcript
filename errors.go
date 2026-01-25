@@ -83,6 +83,10 @@ var (
 var (
 	// ErrNoAudioDevice indicates no audio input device was found or detected.
 	ErrNoAudioDevice = errors.New("no audio input device found")
+
+	// ErrLoopbackNotFound indicates no loopback device was detected.
+	// The user needs to install a virtual audio driver (BlackHole, PulseAudio monitor, etc.).
+	ErrLoopbackNotFound = errors.New("loopback device not found")
 )
 
 // --- Chunking errors (ExitValidation = 4) ---
