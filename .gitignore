@@ -271,6 +271,7 @@ coverage.out
 
 # Build artifacts
 /transcript
+/go-transcript
 
 # Audio files (recordings, chunks, test files)
 *.ogg
