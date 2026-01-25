@@ -1,6 +1,11 @@
 BINARY := go-transcript
 
-.PHONY: help build test test-integration test-cover bench run clean fmt vet lint sec check check-all tools deps
+# Version info injected at build time
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
+
+.PHONY: help build test test-integration test-cover bench run clean fmt vet lint sec check check-all tools deps version
 
 .DEFAULT_GOAL := help
 
@@ -15,7 +20,11 @@ deps: ## Install dependencies
 	go mod download
 
 build: ## Build the binary
-	go build -o $(BINARY) .
+	go build $(LDFLAGS) -o $(BINARY) .
+
+version: ## Show version that would be injected
+	@echo "Version: $(VERSION)"
+	@echo "Commit:  $(COMMIT)"
 
 test: ## Run unit tests
 	go test -v ./...
