@@ -1,0 +1,8 @@
+[silencedetect @ 0x7f8e4c004a00] silence_start: 5.234
+[silencedetect @ 0x7f8e4c004a00] silence_end: 6.123 | silence_duration: 0.889
+[silencedetect @ 0x7f8e4c004a00] silence_start: 42.567
+[silencedetect @ 0x7f8e4c004a00] silence_end: 43.891 | silence_duration: 1.324
+[silencedetect @ 0x7f8e4c004a00] silence_start: 85.123
+[silencedetect @ 0x7f8e4c004a00] silence_end: 86.456 | silence_duration: 1.333
+frame=    0 fps=0.0 q=0.0 size=N/A time=00:01:30.00 bitrate=N/A speed=N/A
+Duration: 00:01:30.00, start: 0.000000, bitrate: 48 kb/s
