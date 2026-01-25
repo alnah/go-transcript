@@ -162,35 +162,22 @@ func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templa
 
 // restructureWithRetry executes the restructuring with exponential backoff retry.
 func (r *OpenAIRestructurer) restructureWithRetry(ctx context.Context, req openai.ChatCompletionRequest) (string, error) {
-	var lastErr error
-	delay := r.baseDelay
-
-	for attempt := 0; attempt <= r.maxRetries; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(delay):
-			}
-			// Exponential backoff with cap.
-			delay = min(delay*2, r.maxDelay)
-		}
-
-		resp, err := r.client.CreateChatCompletion(ctx, req)
-		if err == nil {
-			if len(resp.Choices) == 0 {
-				return "", fmt.Errorf("no response from API")
-			}
-			return resp.Choices[0].Message.Content, nil
-		}
-
-		lastErr = classifyRestructureError(err)
-		if !isRetryableRestructureError(lastErr) {
-			return "", lastErr
-		}
+	cfg := retryConfig{
+		maxRetries: r.maxRetries,
+		baseDelay:  r.baseDelay,
+		maxDelay:   r.maxDelay,
 	}
 
-	return "", fmt.Errorf("max retries (%d) exceeded: %w", r.maxRetries, lastErr)
+	return retryWithBackoff(ctx, cfg, func() (string, error) {
+		resp, err := r.client.CreateChatCompletion(ctx, req)
+		if err != nil {
+			return "", classifyRestructureError(err)
+		}
+		if len(resp.Choices) == 0 {
+			return "", fmt.Errorf("no response from API")
+		}
+		return resp.Choices[0].Message.Content, nil
+	}, isRetryableRestructureError)
 }
 
 // estimateTokens estimates the number of tokens in a text.

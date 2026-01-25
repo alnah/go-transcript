@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -31,6 +32,51 @@ const (
 	defaultBaseDelay  = 1 * time.Second
 	defaultMaxDelay   = 30 * time.Second
 )
+
+// retryConfig holds retry parameters for exponential backoff.
+type retryConfig struct {
+	maxRetries int
+	baseDelay  time.Duration
+	maxDelay   time.Duration
+}
+
+// retryWithBackoff executes fn with exponential backoff retry.
+// It retries only if shouldRetry returns true for the error.
+// Returns the result of the last attempt.
+func retryWithBackoff[T any](
+	ctx context.Context,
+	cfg retryConfig,
+	fn func() (T, error),
+	shouldRetry func(error) bool,
+) (T, error) {
+	var zero T
+	var lastErr error
+	delay := cfg.baseDelay
+
+	for attempt := 0; attempt <= cfg.maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return zero, ctx.Err()
+			case <-time.After(delay):
+			}
+			// Exponential backoff with cap.
+			delay = min(delay*2, cfg.maxDelay)
+		}
+
+		result, err := fn()
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+		if !shouldRetry(lastErr) {
+			return zero, lastErr
+		}
+	}
+
+	return zero, fmt.Errorf("max retries (%d) exceeded: %w", cfg.maxRetries, lastErr)
+}
 
 // TranscribeOptions configures transcription behavior.
 type TranscribeOptions struct {
@@ -136,35 +182,22 @@ func (t *OpenAITranscriber) Transcribe(ctx context.Context, audioPath string, op
 
 // transcribeWithRetry executes the transcription with exponential backoff retry.
 func (t *OpenAITranscriber) transcribeWithRetry(ctx context.Context, req openai.AudioRequest, diarize bool) (string, error) {
-	var lastErr error
-	delay := t.baseDelay
-
-	for attempt := 0; attempt <= t.maxRetries; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(delay):
-			}
-			// Exponential backoff with cap.
-			delay = min(delay*2, t.maxDelay)
-		}
-
-		resp, err := t.client.CreateTranscription(ctx, req)
-		if err == nil {
-			if diarize {
-				return formatDiarizedResponse(resp), nil
-			}
-			return resp.Text, nil
-		}
-
-		lastErr = classifyError(err)
-		if !isRetryableError(lastErr) {
-			return "", lastErr
-		}
+	cfg := retryConfig{
+		maxRetries: t.maxRetries,
+		baseDelay:  t.baseDelay,
+		maxDelay:   t.maxDelay,
 	}
 
-	return "", fmt.Errorf("max retries (%d) exceeded: %w", t.maxRetries, lastErr)
+	return retryWithBackoff(ctx, cfg, func() (string, error) {
+		resp, err := t.client.CreateTranscription(ctx, req)
+		if err != nil {
+			return "", classifyError(err)
+		}
+		if diarize {
+			return formatDiarizedResponse(resp), nil
+		}
+		return resp.Text, nil
+	}, isRetryableError)
 }
 
 // formatDiarizedResponse formats a diarized transcript response.
@@ -194,6 +227,12 @@ func classifyError(err error) error {
 	if errors.As(err, &apiErr) {
 		switch apiErr.HTTPStatusCode {
 		case http.StatusTooManyRequests:
+			// Distinguish between temporary rate limit and quota exceeded (billing issue).
+			// Quota exceeded should not be retried - it requires user action.
+			if strings.Contains(apiErr.Message, "quota") ||
+				strings.Contains(apiErr.Message, "billing") {
+				return fmt.Errorf("%s: %w", apiErr.Message, ErrQuotaExceeded)
+			}
 			return fmt.Errorf("%s: %w", apiErr.Message, ErrRateLimit)
 		case http.StatusUnauthorized:
 			return fmt.Errorf("%s: %w", apiErr.Message, ErrAuthFailed)
