@@ -93,7 +93,7 @@ func exitCode(err error) int {
 	if errors.Is(err, ErrInvalidDuration) || errors.Is(err, ErrUnsupportedFormat) ||
 		errors.Is(err, ErrFileNotFound) || errors.Is(err, ErrUnknownTemplate) ||
 		errors.Is(err, ErrOutputExists) || errors.Is(err, ErrChunkingFailed) ||
-		errors.Is(err, ErrChunkTooLarge) {
+		errors.Is(err, ErrChunkTooLarge) || errors.Is(err, ErrInvalidLanguage) {
 		return ExitValidation
 	}
 

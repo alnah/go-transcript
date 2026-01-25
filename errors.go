@@ -106,3 +106,12 @@ var (
 	// Wrap with size: fmt.Errorf("chunk too large (%d MB, max 25MB): %w", sizeMB, ErrChunkTooLarge)
 	ErrChunkTooLarge = errors.New("chunk exceeds 25MB limit")
 )
+
+// --- Language errors (ExitValidation = 4) ---
+// Language code validation errors.
+
+var (
+	// ErrInvalidLanguage indicates an invalid language code was specified.
+	// Wrap with the code: fmt.Errorf("invalid language code %q: %w", code, ErrInvalidLanguage)
+	ErrInvalidLanguage = errors.New("invalid language code")
+)
