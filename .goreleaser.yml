@@ -1,0 +1,60 @@
+version: 2
+
+project_name: transcript
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: transcript
+    binary: transcript
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE*
+      - README*
+      - completions/*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: alnah
+    name: go-transcript
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
+
+# Generate shell completions
+# Requires cobra completion support (already available via cobra)
