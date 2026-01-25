@@ -114,7 +114,7 @@ func parseConfigFile(path string) (map[string]string, error) {
 
 // SaveConfigValue writes a single key=value to the config file.
 // Creates the config directory and file if they don't exist.
-// Preserves existing values and comments.
+// Preserves existing key=value pairs but discards comments.
 func SaveConfigValue(key, value string) error {
 	path, err := configPath()
 	if err != nil {
