@@ -109,10 +109,17 @@ type Transcriber interface {
 	Transcribe(ctx context.Context, audioPath string, opts TranscribeOptions) (string, error)
 }
 
+// audioTranscriber is an internal interface for OpenAI audio transcription.
+// *openai.Client implements this implicitly.
+// This allows injecting mocks in tests.
+type audioTranscriber interface {
+	CreateTranscription(ctx context.Context, req openai.AudioRequest) (openai.AudioResponse, error)
+}
+
 // OpenAITranscriber transcribes audio using OpenAI's transcription API.
 // It supports automatic retries with exponential backoff for transient errors.
 type OpenAITranscriber struct {
-	client     *openai.Client
+	client     audioTranscriber
 	maxRetries int
 	baseDelay  time.Duration
 	maxDelay   time.Duration
@@ -139,6 +146,13 @@ func WithRetryDelays(base, max time.Duration) TranscriberOption {
 		if max > 0 {
 			t.maxDelay = max
 		}
+	}
+}
+
+// withAudioTranscriber sets a custom audio transcriber (for testing).
+func withAudioTranscriber(at audioTranscriber) TranscriberOption {
+	return func(t *OpenAITranscriber) {
+		t.client = at
 	}
 }
 
