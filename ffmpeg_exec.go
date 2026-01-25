@@ -78,10 +78,19 @@ func runFFmpegGraceful(ctx context.Context, ffmpegPath string, args []string, ti
 	}
 }
 
+// ffmpegOutputFunc is the function signature for running FFmpeg and capturing output.
+// This variable can be replaced in tests to mock FFmpeg behavior.
+var runFFmpegOutputFunc = runFFmpegOutputImpl
+
 // runFFmpegOutput executes FFmpeg and captures its stderr output.
 // FFmpeg writes most diagnostic output (including device lists, probe info) to stderr.
 // This is useful for commands like -list_devices, -i with probe, silencedetect filter, etc.
 func runFFmpegOutput(ctx context.Context, ffmpegPath string, args []string) (string, error) {
+	return runFFmpegOutputFunc(ctx, ffmpegPath, args)
+}
+
+// runFFmpegOutputImpl is the real implementation of runFFmpegOutput.
+func runFFmpegOutputImpl(ctx context.Context, ffmpegPath string, args []string) (string, error) {
 	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
 
 	var stderr bytes.Buffer
