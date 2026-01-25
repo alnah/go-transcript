@@ -383,11 +383,24 @@ The restructuring step has a ~100K token limit. For very long recordings:
 
 ```bash
 make build    # Build binary
-make test     # Run tests
+make test     # Run unit tests
 make check    # Run all checks (fmt, vet, lint, test)
 make bench    # Run benchmarks
 make tools    # Install staticcheck and gosec
 ```
+
+<details>
+<summary>Advanced test targets</summary>
+
+```bash
+make test-integration  # Requires FFmpeg
+make test-e2e          # Requires FFmpeg + OPENAI_API_KEY
+make test-all          # Unit + integration + e2e
+make check-all         # Full CI checks (fmt, vet, lint, sec, integration)
+make test-cover        # Unit tests with HTML coverage report
+```
+
+</details>
 
 ## License
 
