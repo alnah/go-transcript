@@ -5,9 +5,19 @@ import "errors"
 // CLI-specific sentinel errors.
 // These are validation/usage errors that don't belong to domain packages.
 
+// Environment variable names for API keys.
+// #nosec G101 -- these are env var names, not credentials
+const (
+	EnvOpenAIAPIKey   = "OPENAI_API_KEY"
+	EnvDeepSeekAPIKey = "DEEPSEEK_API_KEY"
+)
+
 var (
 	// ErrAPIKeyMissing indicates OPENAI_API_KEY environment variable is not set.
 	ErrAPIKeyMissing = errors.New("OPENAI_API_KEY environment variable not set")
+
+	// ErrDeepSeekKeyMissing indicates DEEPSEEK_API_KEY environment variable is not set.
+	ErrDeepSeekKeyMissing = errors.New("DEEPSEEK_API_KEY environment variable not set")
 
 	// ErrInvalidDuration indicates a duration string could not be parsed.
 	ErrInvalidDuration = errors.New("invalid duration format")

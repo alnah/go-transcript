@@ -93,6 +93,7 @@ func exitCode(err error) int {
 
 	// Setup errors (ExitSetup = 3).
 	if errors.Is(err, ffmpeg.ErrNotFound) || errors.Is(err, cli.ErrAPIKeyMissing) ||
+		errors.Is(err, cli.ErrDeepSeekKeyMissing) || errors.Is(err, cli.ErrUnsupportedProvider) ||
 		errors.Is(err, audio.ErrNoAudioDevice) || errors.Is(err, audio.ErrLoopbackNotFound) ||
 		errors.Is(err, ffmpeg.ErrUnsupportedPlatform) || errors.Is(err, ffmpeg.ErrChecksumMismatch) ||
 		errors.Is(err, ffmpeg.ErrDownloadFailed) {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -54,11 +55,20 @@ type TranscriberFactory interface {
 	NewTranscriber(apiKey string) transcribe.Transcriber
 }
 
+// Restructuring provider constants.
+const (
+	// ProviderDeepSeek uses DeepSeek API for restructuring.
+	ProviderDeepSeek = "deepseek"
+	// ProviderOpenAI uses OpenAI API for restructuring.
+	ProviderOpenAI = "openai"
+)
+
 // RestructurerFactory creates restructurers for transcript formatting.
 type RestructurerFactory interface {
-	// NewMapReducer creates a MapReducer configured with the given API key and options.
+	// NewMapReducer creates a MapReducer configured with the given provider, API key, and options.
+	// provider must be ProviderDeepSeek or ProviderOpenAI.
 	// This is the primary method for creating restructurers in CLI commands.
-	NewMapReducer(apiKey string, opts ...restructure.MapReduceOption) restructure.MapReducer
+	NewMapReducer(provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error)
 }
 
 // ChunkerFactory creates audio chunkers.
@@ -193,13 +203,28 @@ func (defaultTranscriberFactory) NewTranscriber(apiKey string) transcribe.Transc
 	return transcribe.NewOpenAITranscriber(client)
 }
 
-// defaultRestructurerFactory implements RestructurerFactory using OpenAI.
+// defaultRestructurerFactory implements RestructurerFactory with provider selection.
 type defaultRestructurerFactory struct{}
 
-func (defaultRestructurerFactory) NewMapReducer(apiKey string, opts ...restructure.MapReduceOption) restructure.MapReducer {
-	client := openai.NewClient(apiKey)
-	base := restructure.NewOpenAIRestructurer(client)
-	return restructure.NewMapReduceRestructurer(base, opts...)
+// ErrUnsupportedProvider indicates an invalid provider was specified.
+var ErrUnsupportedProvider = fmt.Errorf("unsupported provider (use %q or %q)", ProviderDeepSeek, ProviderOpenAI)
+
+func (defaultRestructurerFactory) NewMapReducer(provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error) {
+	switch provider {
+	case ProviderDeepSeek:
+		base, err := restructure.NewDeepSeekRestructurer(apiKey)
+		if err != nil {
+			return nil, err
+		}
+		return restructure.NewMapReduceRestructurer(base, opts...), nil
+	case ProviderOpenAI:
+		client := openai.NewClient(apiKey)
+		base := restructure.NewOpenAIRestructurer(client)
+		return restructure.NewMapReduceRestructurer(base, opts...), nil
+	default:
+		// Defensive: callers validate provider, but protect against direct factory use
+		return nil, ErrUnsupportedProvider
+	}
 }
 
 // defaultChunkerFactory implements ChunkerFactory using audio package.
