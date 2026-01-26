@@ -299,3 +299,6 @@ chunk_*.mp3
 
 # FFmpeg auto-download directory
 .go-transcript/
+
+# Claude Code local settings
+.claude/
