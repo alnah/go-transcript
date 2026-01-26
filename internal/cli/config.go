@@ -170,8 +170,15 @@ func runConfigList(env *Env) error {
 		return nil
 	}
 
-	for key, value := range data {
-		fmt.Printf("%s=%s\n", key, value)
+	// Sort keys for deterministic output.
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+
+	for _, key := range keys {
+		fmt.Printf("%s=%s\n", key, data[key])
 	}
 
 	return nil
