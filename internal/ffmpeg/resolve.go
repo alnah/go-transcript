@@ -10,10 +10,10 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +22,12 @@ import (
 const (
 	ffmpegVersion = "6.1.1"
 
+	// binaryName is the base name of the ffmpeg binary.
+	binaryName = "ffmpeg"
+
+	// binaryExtWindows is the file extension for Windows executables.
+	binaryExtWindows = ".exe"
+
 	// downloadTimeout is the maximum time allowed for downloading ffmpeg.
 	// Binary is ~20-30MB compressed, allowing for slow connections.
 	downloadTimeout = 10 * time.Minute
@@ -29,20 +35,19 @@ const (
 	// versionFileName stores the installed version for upgrade detection.
 	versionFileName = ".version"
 
-	// maxDecompressedSize prevents decompression bombs.
-	// FFmpeg binary is ~80MB uncompressed; 200MB limit provides safety margin.
-	maxDecompressedSize = 200 * 1024 * 1024
-
 	// minFFmpegMajorVersion is the minimum supported ffmpeg version.
 	// Versions below this may lack required features (silencedetect improvements, codec support).
 	minFFmpegMajorVersion = 4
+
+	// installDirPerm is the permission mode for the FFmpeg install directory.
+	installDirPerm = 0750
 )
 
 // Environment variable for custom ffmpeg path.
 const envFFmpegPath = "FFMPEG_PATH"
 
-// downloadClient is a dedicated HTTP client for FFmpeg downloads with explicit timeouts.
-var downloadClient = &http.Client{
+// defaultHTTPClient is a dedicated HTTP client for FFmpeg downloads with explicit timeouts.
+var defaultHTTPClient = &http.Client{
 	Timeout: downloadTimeout,
 	Transport: &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
@@ -60,36 +65,153 @@ type binaryInfo struct {
 // downloadBaseURL is the base URL for eugeneware/ffmpeg-static releases.
 const downloadBaseURL = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1"
 
-// platforms maps GOOS-GOARCH to ffmpeg download information.
-// SHA256 checksums are for the .gz compressed files.
-//
-// To update checksums after a new release:
-//  1. Download each .gz file
-//  2. Run: shasum -a 256 <filename>
-//  3. Update the SHA256 field below
-var platforms = map[string]binaryInfo{
-	"darwin-arm64": {
-		URL:    downloadBaseURL + "/ffmpeg-darwin-arm64.gz",
-		SHA256: "8923876afa8db5585022d7860ec7e589af192f441c56793971276d450ed3bbfa",
-	},
-	"darwin-amd64": {
-		URL:    downloadBaseURL + "/ffmpeg-darwin-x64.gz",
-		SHA256: "5d8fb6f280c428d0e82cd5ee68215f0734d64f88e37dcc9e082f818c9e5025f0",
-	},
-	"linux-amd64": {
-		URL:    downloadBaseURL + "/ffmpeg-linux-x64.gz",
-		SHA256: "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa",
-	},
-	"windows-amd64": {
-		URL:    downloadBaseURL + "/ffmpeg-win32-x64.gz",
-		SHA256: "8883a3dffbd0a16cf4ef95206ea05283f78908dbfb118f73c83f4951dcc06d77",
-	},
+// getPlatformInfo returns download information for the given platform.
+// Returns the binaryInfo and true if the platform is supported, or zero value and false otherwise.
+// This function encapsulates the platform map to avoid data races in concurrent access.
+func getPlatformInfo(goos, goarch string) (binaryInfo, bool) {
+	platforms := map[string]binaryInfo{
+		"darwin-arm64": {
+			URL:    downloadBaseURL + "/ffmpeg-darwin-arm64.gz",
+			SHA256: "8923876afa8db5585022d7860ec7e589af192f441c56793971276d450ed3bbfa",
+		},
+		"darwin-amd64": {
+			URL:    downloadBaseURL + "/ffmpeg-darwin-x64.gz",
+			SHA256: "5d8fb6f280c428d0e82cd5ee68215f0734d64f88e37dcc9e082f818c9e5025f0",
+		},
+		"linux-amd64": {
+			URL:    downloadBaseURL + "/ffmpeg-linux-x64.gz",
+			SHA256: "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa",
+		},
+		"windows-amd64": {
+			URL:    downloadBaseURL + "/ffmpeg-win32-x64.gz",
+			SHA256: "8883a3dffbd0a16cf4ef95206ea05283f78908dbfb118f73c83f4951dcc06d77",
+		},
+	}
+	info, ok := platforms[goos+"-"+goarch]
+	return info, ok
+}
+
+// ---------------------------------------------------------------------------
+// Resolver - testable FFmpeg resolution with dependency injection
+// ---------------------------------------------------------------------------
+
+// Resolver finds and optionally downloads FFmpeg.
+type Resolver struct {
+	reader       fileReader
+	writer       fileWriter
+	http         httpDoer
+	env          envProvider
+	stderr       io.Writer
+	goos         string
+	goarch       string
+	platformInfo *binaryInfo // Override for testing; nil uses getPlatformInfo
+}
+
+// ResolverOption configures a Resolver.
+type ResolverOption func(*Resolver)
+
+// WithFileReader sets the file reader implementation.
+func WithFileReader(r fileReader) ResolverOption {
+	return func(res *Resolver) { res.reader = r }
+}
+
+// WithFileWriter sets the file writer implementation.
+func WithFileWriter(w fileWriter) ResolverOption {
+	return func(res *Resolver) { res.writer = w }
+}
+
+// WithHTTPClient sets the HTTP client implementation.
+func WithHTTPClient(c httpDoer) ResolverOption {
+	return func(res *Resolver) { res.http = c }
+}
+
+// WithEnvProvider sets the environment provider implementation.
+func WithEnvProvider(e envProvider) ResolverOption {
+	return func(res *Resolver) { res.env = e }
+}
+
+// WithStderr sets the writer for status messages.
+func WithStderr(w io.Writer) ResolverOption {
+	return func(res *Resolver) { res.stderr = w }
+}
+
+// WithPlatform sets the target platform (for testing cross-platform behavior).
+func WithPlatform(goos, goarch string) ResolverOption {
+	return func(res *Resolver) {
+		res.goos = goos
+		res.goarch = goarch
+	}
+}
+
+// WithPlatformInfo overrides the platform download info (for testing downloads).
+func WithPlatformInfo(info binaryInfo) ResolverOption {
+	return func(res *Resolver) {
+		res.platformInfo = &info
+	}
+}
+
+// NewResolver creates a Resolver with the given options.
+// Uses production defaults if no options are provided.
+func NewResolver(opts ...ResolverOption) *Resolver {
+	r := &Resolver{
+		reader: osFileReader{},
+		writer: osFileWriter{},
+		http:   defaultHTTPClient,
+		env:    osEnvProvider{},
+		stderr: os.Stderr,
+		goos:   runtime.GOOS,
+		goarch: runtime.GOARCH,
+	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
+}
+
+// Resolve finds ffmpeg using the following precedence:
+//  1. FFMPEG_PATH environment variable (error if set but invalid)
+//  2. ~/.go-transcript/bin/ffmpeg (installed by us)
+//  3. System PATH
+//  4. Auto-download if nothing found
+func (r *Resolver) Resolve(ctx context.Context) (string, error) {
+	// 1. Check FFMPEG_PATH environment variable
+	if envPath := r.env.Getenv(envFFmpegPath); envPath != "" {
+		if _, err := r.reader.Stat(envPath); err != nil {
+			return "", fmt.Errorf("%w: %s is set to %q but binary not found (unset to enable auto-download)",
+				ErrNotFound, envFFmpegPath, envPath)
+		}
+		return envPath, nil
+	}
+
+	// 2. Check our install directory
+	installed, err := r.isInstalled()
+	if err != nil {
+		return "", err
+	}
+	if installed {
+		path, _ := r.installedPath()
+		return path, nil
+	}
+
+	// 3. Check system PATH
+	if path, err := r.env.LookPath("ffmpeg"); err == nil {
+		return path, nil
+	}
+
+	// 4. Auto-download
+	fmt.Fprintln(r.stderr, "ffmpeg not found, downloading...")
+	if err := r.downloadAndInstall(ctx); err != nil {
+		return "", fmt.Errorf("%w: auto-download failed: %v\n\n%s",
+			ErrNotFound, err, r.manualInstallInstructions())
+	}
+
+	path, _ := r.installedPath()
+	return path, nil
 }
 
 // installDir returns the directory where ffmpeg is installed.
-// Default: ~/.go-transcript/bin/
-func installDir() (string, error) {
-	home, err := os.UserHomeDir()
+func (r *Resolver) installDir() (string, error) {
+	home, err := r.env.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
@@ -97,37 +219,37 @@ func installDir() (string, error) {
 }
 
 // installedPath returns the path where ffmpeg would be installed.
-func installedPath() (string, error) {
-	dir, err := installDir()
+func (r *Resolver) installedPath() (string, error) {
+	dir, err := r.installDir()
 	if err != nil {
 		return "", err
 	}
 
-	name := "ffmpeg"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
+	name := binaryName
+	if r.goos == "windows" {
+		name += binaryExtWindows
 	}
 
 	return filepath.Join(dir, name), nil
 }
 
 // isInstalled checks if ffmpeg is already installed at the expected location.
-// Returns true only if the binary exists and the version file matches.
-func isInstalled() (bool, error) {
-	ffmpegPath, err := installedPath()
+// Note: There is a TOCTOU race between Stat and ReadFile, but this is acceptable
+// because the worst case is a redundant download, which is idempotent.
+func (r *Resolver) isInstalled() (bool, error) {
+	ffmpegPath, err := r.installedPath()
 	if err != nil {
 		return false, err
 	}
 
-	if _, err := os.Stat(ffmpegPath); os.IsNotExist(err) {
+	if _, err := r.reader.Stat(ffmpegPath); os.IsNotExist(err) {
 		return false, nil
 	}
 
 	// Check version file matches current version
-	dir, _ := installDir()
+	dir, _ := r.installDir()
 	versionPath := filepath.Join(dir, versionFileName)
-	// #nosec G304 -- path constructed from user home dir, not user input
-	data, err := os.ReadFile(versionPath)
+	data, err := r.reader.ReadFile(versionPath)
 	if err != nil {
 		return false, nil // Version file missing = needs reinstall
 	}
@@ -138,150 +260,80 @@ func isInstalled() (bool, error) {
 	return true, nil
 }
 
-// Resolve finds ffmpeg using the following precedence:
-//  1. FFMPEG_PATH environment variable (error if set but invalid)
-//  2. ~/.go-transcript/bin/ffmpeg (installed by us)
-//  3. System PATH
-//  4. Auto-download if nothing found
-//
-// Returns the path to the ffmpeg binary.
-func Resolve(ctx context.Context) (string, error) {
-	// 1. Check FFMPEG_PATH environment variable
-	if envPath := os.Getenv(envFFmpegPath); envPath != "" {
-		if _, err := os.Stat(envPath); err != nil {
-			return "", fmt.Errorf("%w: %s is set to %q but binary not found (unset to enable auto-download)",
-				ErrNotFound, envFFmpegPath, envPath)
-		}
-		return envPath, nil
-	}
-
-	// 2. Check our install directory
-	installed, err := isInstalled()
-	if err != nil {
-		return "", err
-	}
-	if installed {
-		path, _ := installedPath()
-		return path, nil
-	}
-
-	// 3. Check system PATH
-	if path, err := exec.LookPath("ffmpeg"); err == nil {
-		return path, nil
-	}
-
-	// 4. Auto-download
-	fmt.Fprintln(os.Stderr, "ffmpeg not found, downloading...")
-	if err := downloadAndInstall(ctx); err != nil {
-		return "", fmt.Errorf("%w: auto-download failed: %v\n\n%s",
-			ErrNotFound, err, manualInstallInstructions())
-	}
-
-	path, _ := installedPath()
-	return path, nil
-}
-
-// CheckVersion verifies that ffmpeg meets minimum version requirements.
-// Prints a warning to stderr if version is below minimum but doesn't fail.
-func CheckVersion(ctx context.Context, ffmpegPath string) {
-	cmd := exec.CommandContext(ctx, ffmpegPath, "-version")
-	output, err := cmd.Output()
-	if err != nil {
-		return // Can't check version, proceed anyway
-	}
-
-	// Parse version from output like "ffmpeg version 6.1.1 Copyright..."
-	lines := strings.Split(string(output), "\n")
-	if len(lines) == 0 {
-		return
-	}
-
-	var major int
-	_, err = fmt.Sscanf(lines[0], "ffmpeg version %d", &major)
-	if err != nil {
-		// Try alternative format "ffmpeg version n6.1.1..."
-		_, err = fmt.Sscanf(lines[0], "ffmpeg version n%d", &major)
-		if err != nil {
-			return // Can't parse version
-		}
-	}
-
-	if major < minFFmpegMajorVersion {
-		fmt.Fprintf(os.Stderr, "Warning: ffmpeg version %d detected, version %d+ recommended\n",
-			major, minFFmpegMajorVersion)
-	}
-}
-
 // downloadAndInstall downloads and installs ffmpeg.
-func downloadAndInstall(ctx context.Context) error {
-	platform := runtime.GOOS + "-" + runtime.GOARCH
-	info, ok := platforms[platform]
-	if !ok {
-		return fmt.Errorf("%w: %s (supported: darwin-arm64, darwin-amd64, linux-amd64, windows-amd64)",
-			ErrUnsupportedPlatform, platform)
+func (r *Resolver) downloadAndInstall(ctx context.Context) error {
+	var info binaryInfo
+	if r.platformInfo != nil {
+		info = *r.platformInfo
+	} else {
+		var ok bool
+		info, ok = getPlatformInfo(r.goos, r.goarch)
+		if !ok {
+			return fmt.Errorf("%w: %s-%s (supported: darwin-arm64, darwin-amd64, linux-amd64, windows-amd64)",
+				ErrUnsupportedPlatform, r.goos, r.goarch)
+		}
 	}
 
-	dir, err := installDir()
+	dir, err := r.installDir()
 	if err != nil {
 		return err
 	}
 
 	// Create install directory
-	if err := os.MkdirAll(dir, 0750); err != nil { // #nosec G301 -- install dir in user home
+	if err := r.writer.MkdirAll(dir, installDirPerm); err != nil {
 		return fmt.Errorf("cannot create install directory %s: %w", dir, err)
 	}
 
 	// Determine binary name
-	name := "ffmpeg"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
+	name := binaryName
+	if r.goos == "windows" {
+		name += binaryExtWindows
 	}
 	destPath := filepath.Join(dir, name)
 
 	// Download binary
-	if err := downloadBinary(ctx, info, destPath); err != nil {
-		_ = os.Remove(destPath) // Cleanup on failure
-		return fmt.Errorf("failed to download ffmpeg: %w", err)
+	if err := r.downloadBinary(ctx, info, destPath); err != nil {
+		_ = r.writer.Remove(destPath) // Cleanup on failure
+		return fmt.Errorf("download ffmpeg: %w", err)
 	}
 
 	// Write version file
 	versionPath := filepath.Join(dir, versionFileName)
-	// #nosec G306 -- version file is non-sensitive metadata
-	if err := os.WriteFile(versionPath, []byte(ffmpegVersion), 0644); err != nil {
-		return fmt.Errorf("failed to write version file: %w", err)
+	if err := r.writer.WriteFile(versionPath, []byte(ffmpegVersion), 0644); err != nil {
+		return fmt.Errorf("write version file: %w", err)
 	}
 
 	return nil
 }
 
 // downloadBinary downloads, verifies, and extracts ffmpeg.
-// Uses atomic write pattern: download to temp file, verify, then rename.
-func downloadBinary(ctx context.Context, info binaryInfo, destPath string) error {
+func (r *Resolver) downloadBinary(ctx context.Context, info binaryInfo, destPath string) error {
 	dir := filepath.Dir(destPath)
-	tempFile, err := os.CreateTemp(dir, ".download-*")
+	tempFile, err := r.writer.CreateTemp(dir, ".download-*")
 	if err != nil {
 		return fmt.Errorf("cannot create temp file: %w", err)
 	}
 	tempPath := tempFile.Name()
+	tempFileClosed := false
 
 	// Ensure cleanup on any error
 	defer func() {
-		_ = tempFile.Close()
-		_ = os.Remove(tempPath)
+		if !tempFileClosed {
+			_ = tempFile.Close()
+		}
+		_ = r.writer.Remove(tempPath)
 	}()
 
-	// Download with timeout
-	downloadCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
-	defer cancel()
-
-	if err := downloadToFile(downloadCtx, info.URL, tempFile); err != nil {
+	// Download - timeout is enforced by defaultHTTPClient.Timeout
+	if err := r.downloadToFile(ctx, info.URL, tempFile); err != nil {
 		return err
 	}
 
 	// Close to flush writes before checksum
 	if err := tempFile.Close(); err != nil {
-		return fmt.Errorf("failed to close temp file: %w", err)
+		return fmt.Errorf("close temp file: %w", err)
 	}
+	tempFileClosed = true
 
 	// Verify checksum
 	if err := verifyChecksum(tempPath, info.SHA256); err != nil {
@@ -294,10 +346,9 @@ func downloadBinary(ctx context.Context, info binaryInfo, destPath string) error
 	}
 
 	// Make executable on Unix
-	if runtime.GOOS != "windows" {
-		// #nosec G302 -- executable binary requires 0755
-		if err := os.Chmod(destPath, 0755); err != nil {
-			return fmt.Errorf("failed to make binary executable: %w", err)
+	if r.goos != "windows" {
+		if err := r.writer.Chmod(destPath, 0755); err != nil {
+			return fmt.Errorf("make binary executable: %w", err)
 		}
 	}
 
@@ -305,13 +356,13 @@ func downloadBinary(ctx context.Context, info binaryInfo, destPath string) error
 }
 
 // downloadToFile downloads a URL to an open file.
-func downloadToFile(ctx context.Context, url string, dest *os.File) error {
+func (r *Resolver) downloadToFile(ctx context.Context, url string, dest *os.File) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("%w: invalid URL: %v", ErrDownloadFailed, err)
 	}
 
-	resp, err := downloadClient.Do(req)
+	resp, err := r.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDownloadFailed, err)
 	}
@@ -328,6 +379,136 @@ func downloadToFile(ctx context.Context, url string, dest *os.File) error {
 	return nil
 }
 
+// manualInstallInstructions returns platform-specific instructions.
+func (r *Resolver) manualInstallInstructions() string {
+	switch r.goos {
+	case "darwin":
+		return `To install FFmpeg manually:
+  brew install ffmpeg
+
+Or download from https://evermeet.cx/ffmpeg/
+
+Or set FFMPEG_PATH environment variable to your ffmpeg binary.`
+	case "linux":
+		return `To install FFmpeg manually:
+  Ubuntu/Debian: sudo apt install ffmpeg
+  Fedora:        sudo dnf install ffmpeg
+  Arch:          sudo pacman -S ffmpeg
+
+Or set FFMPEG_PATH environment variable to your ffmpeg binary.`
+	case "windows":
+		return `To install FFmpeg manually:
+  winget install ffmpeg
+
+Or download from https://www.gyan.dev/ffmpeg/builds/
+
+Or set FFMPEG_PATH environment variable to your ffmpeg.exe.`
+	default:
+		return `To install FFmpeg manually, download from https://ffmpeg.org/download.html
+Or set FFMPEG_PATH environment variable to your ffmpeg binary.`
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Package-level functions - backward compatible facade
+// ---------------------------------------------------------------------------
+
+var (
+	defaultResolver     *Resolver
+	defaultResolverOnce sync.Once
+)
+
+// getDefaultResolver returns the lazily-initialized default resolver.
+func getDefaultResolver() *Resolver {
+	defaultResolverOnce.Do(func() {
+		defaultResolver = NewResolver()
+	})
+	return defaultResolver
+}
+
+// Resolve finds ffmpeg using the default resolver.
+// This is a backward-compatible facade for the Resolver.Resolve method.
+func Resolve(ctx context.Context) (string, error) {
+	return getDefaultResolver().Resolve(ctx)
+}
+
+// VersionChecker verifies FFmpeg version requirements.
+type VersionChecker struct {
+	executor *Executor
+	stderr   io.Writer
+}
+
+// VersionCheckerOption configures a VersionChecker.
+type VersionCheckerOption func(*VersionChecker)
+
+// WithVersionExecutor sets the executor for running FFmpeg.
+func WithVersionExecutor(e *Executor) VersionCheckerOption {
+	return func(vc *VersionChecker) { vc.executor = e }
+}
+
+// WithVersionStderr sets the writer for warning messages.
+func WithVersionStderr(w io.Writer) VersionCheckerOption {
+	return func(vc *VersionChecker) { vc.stderr = w }
+}
+
+// NewVersionChecker creates a VersionChecker with the given options.
+func NewVersionChecker(opts ...VersionCheckerOption) *VersionChecker {
+	vc := &VersionChecker{
+		executor: getDefaultExecutor(),
+		stderr:   os.Stderr,
+	}
+	for _, opt := range opts {
+		opt(vc)
+	}
+	return vc
+}
+
+// Check verifies that ffmpeg meets minimum version requirements.
+// Prints a warning to stderr if version is below minimum but doesn't fail.
+// Returns true if version was successfully checked, false if parsing failed.
+func (vc *VersionChecker) Check(ctx context.Context, ffmpegPath string) bool {
+	output, err := vc.executor.RunOutput(ctx, ffmpegPath, []string{"-version"})
+	if err != nil && output == "" {
+		return false // Can't check version, proceed anyway
+	}
+
+	// Parse version from output like "ffmpeg version 6.1.1 Copyright..."
+	lines := strings.Split(output, "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		return false
+	}
+
+	var major int
+	_, err = fmt.Sscanf(lines[0], "ffmpeg version %d", &major)
+	if err != nil {
+		// Try alternative format "ffmpeg version n6.1.1..."
+		_, err = fmt.Sscanf(lines[0], "ffmpeg version n%d", &major)
+		if err != nil {
+			return false // Can't parse version
+		}
+	}
+
+	if major < minFFmpegMajorVersion {
+		fmt.Fprintf(vc.stderr, "Warning: ffmpeg version %d detected, version %d+ recommended\n",
+			major, minFFmpegMajorVersion)
+	}
+	return true
+}
+
+// CheckVersion verifies that ffmpeg meets minimum version requirements.
+// This is a backward-compatible facade for the VersionChecker.Check method.
+func CheckVersion(ctx context.Context, ffmpegPath string) {
+	NewVersionChecker().Check(ctx, ffmpegPath)
+}
+
+// ---------------------------------------------------------------------------
+// Pure helper functions
+// These functions use os package directly rather than injected dependencies.
+// This is intentional: they operate on internal temp files only and keeping
+// them as pure functions simplifies the code without sacrificing testability
+// (they are tested directly with t.TempDir).
+// ---------------------------------------------------------------------------
+
 // verifyChecksum computes the SHA256 of a file and compares to expected.
 func verifyChecksum(filePath, expectedSHA256 string) error {
 	f, err := os.Open(filePath) // #nosec G304 -- filePath is internal temp file
@@ -338,7 +519,7 @@ func verifyChecksum(filePath, expectedSHA256 string) error {
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("failed to compute checksum: %w", err)
+		return fmt.Errorf("compute checksum: %w", err)
 	}
 
 	actual := hex.EncodeToString(h.Sum(nil))
@@ -350,7 +531,10 @@ func verifyChecksum(filePath, expectedSHA256 string) error {
 }
 
 // decompressGzip decompresses a gzip file to a destination path.
-// Uses atomic write pattern.
+// Uses atomic write pattern with size limit to prevent decompression bombs.
+// FFmpeg binary is ~80MB uncompressed; 200MB limit provides safety margin.
+const maxDecompressedSize = 200 * 1024 * 1024
+
 func decompressGzip(gzPath, destPath string) error {
 	gzFile, err := os.Open(gzPath) // #nosec G304 -- gzPath is internal temp file
 	if err != nil {
@@ -392,44 +576,14 @@ func decompressGzip(gzPath, destPath string) error {
 	}
 
 	if err := tempFile.Close(); err != nil {
-		return fmt.Errorf("failed to close temp file: %w", err)
+		return fmt.Errorf("close temp file: %w", err)
 	}
 
 	// Atomic rename
 	if err := os.Rename(tempPath, destPath); err != nil {
-		return fmt.Errorf("failed to install binary: %w", err)
+		return fmt.Errorf("install binary: %w", err)
 	}
 
 	success = true
 	return nil
-}
-
-// manualInstallInstructions returns platform-specific instructions for manual FFmpeg installation.
-func manualInstallInstructions() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return `To install FFmpeg manually:
-  brew install ffmpeg
-
-Or download from https://evermeet.cx/ffmpeg/
-
-Or set FFMPEG_PATH environment variable to your ffmpeg binary.`
-	case "linux":
-		return `To install FFmpeg manually:
-  Ubuntu/Debian: sudo apt install ffmpeg
-  Fedora:        sudo dnf install ffmpeg
-  Arch:          sudo pacman -S ffmpeg
-
-Or set FFMPEG_PATH environment variable to your ffmpeg binary.`
-	case "windows":
-		return `To install FFmpeg manually:
-  winget install ffmpeg
-
-Or download from https://www.gyan.dev/ffmpeg/builds/
-
-Or set FFMPEG_PATH environment variable to your ffmpeg.exe.`
-	default:
-		return `To install FFmpeg manually, download from https://ffmpeg.org/download.html
-Or set FFMPEG_PATH environment variable to your ffmpeg binary.`
-	}
 }
