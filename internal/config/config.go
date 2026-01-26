@@ -2,9 +2,11 @@ package config
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -16,6 +18,24 @@ const (
 // Environment variable fallbacks.
 const (
 	EnvOutputDir = "TRANSCRIPT_OUTPUT_DIR"
+)
+
+// File system permissions.
+const (
+	dirPerm  os.FileMode = 0750
+	filePerm os.FileMode = 0644
+)
+
+// Sentinel errors for error handling with errors.Is().
+var (
+	// ErrInvalidSyntax is returned when the config file has invalid syntax.
+	ErrInvalidSyntax = errors.New("invalid config syntax")
+	// ErrInvalidKey is returned when a config key contains invalid characters.
+	ErrInvalidKey = errors.New("invalid config key")
+	// ErrNotWritable is returned when a directory is not writable.
+	ErrNotWritable = errors.New("directory not writable")
+	// ErrNotDirectory is returned when a path is not a directory.
+	ErrNotDirectory = errors.New("path is not a directory")
 )
 
 // Config holds user configuration loaded from ~/.config/go-transcript/config.
@@ -74,8 +94,8 @@ func Load() (Config, error) {
 
 // parseFile reads a key=value config file.
 // Format: one key=value per line, # comments, empty lines ignored.
-func parseFile(p string) (map[string]string, error) {
-	f, err := os.Open(p) // #nosec G304 -- config path is constructed from home dir
+func parseFile(path string) (map[string]string, error) {
+	f, err := os.Open(path) // #nosec G304 -- config path is constructed from home dir
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +117,7 @@ func parseFile(p string) (map[string]string, error) {
 		// Parse key=value.
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid syntax at line %d: %q", lineNum, line)
+			return nil, fmt.Errorf("%w: %s:%d: %q", ErrInvalidSyntax, path, lineNum, line)
 		}
 
 		key := strings.TrimSpace(parts[0])
@@ -106,7 +126,7 @@ func parseFile(p string) (map[string]string, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
+		return nil, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
 	return data, nil
@@ -115,20 +135,30 @@ func parseFile(p string) (map[string]string, error) {
 // Save writes a single key=value to the config file.
 // Creates the config directory and file if they don't exist.
 // Preserves existing key=value pairs but discards comments.
+// Returns ErrInvalidKey if the key contains = or newline characters.
+//
+// WARNING: This function rewrites the entire config file. Any comments
+// (lines starting with #) in the original file will be lost. This is a
+// known limitation of the current implementation.
 func Save(key, value string) error {
-	p, err := path()
+	// Validate key to prevent config file corruption.
+	if strings.ContainsAny(key, "=\n\r") || key == "" {
+		return fmt.Errorf("%w: %q", ErrInvalidKey, key)
+	}
+
+	configPath, err := path()
 	if err != nil {
 		return err
 	}
 
 	// Ensure config directory exists.
-	d := filepath.Dir(p)
-	if err := os.MkdirAll(d, 0750); err != nil { // #nosec G301 -- user config dir
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, dirPerm); err != nil { // #nosec G301 -- user config dir
 		return fmt.Errorf("cannot create config directory: %w", err)
 	}
 
 	// Read existing config (if any).
-	existing, _ := parseFile(p)
+	existing, _ := parseFile(configPath)
 	if existing == nil {
 		existing = make(map[string]string)
 	}
@@ -136,21 +166,29 @@ func Save(key, value string) error {
 	// Update value.
 	existing[key] = value
 
-	// Write back.
-	return writeFile(p, existing)
+	// Write back (WARNING: comments are not preserved).
+	return writeFile(configPath, existing)
 }
 
 // writeFile writes the config map to a file.
-func writeFile(p string, data map[string]string) error {
+// Keys are sorted alphabetically for deterministic output.
+func writeFile(path string, data map[string]string) error {
 	// #nosec G302 G304 -- config file with standard permissions, path from home dir
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, filePerm)
 	if err != nil {
 		return fmt.Errorf("cannot write config file: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
-	for key, value := range data {
-		if _, err := fmt.Fprintf(f, "%s=%s\n", key, value); err != nil {
+	// Sort keys for deterministic output.
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		if _, err := fmt.Fprintf(f, "%s=%s\n", key, data[key]); err != nil {
 			return fmt.Errorf("failed to write config: %w", err)
 		}
 	}
@@ -223,28 +261,47 @@ func ResolveOutputPath(output, outputDir, defaultName string) string {
 	return filepath.Clean(defaultName)
 }
 
-// ValidOutputDir checks if a directory path is valid for use as output-dir.
-// Returns nil if valid, or an error describing the problem.
-func ValidOutputDir(d string) error {
-	if d == "" {
+// ExpandPath expands ~ or ~/path to the user's home directory.
+// Returns the path unchanged if expansion fails or if it doesn't start with ~.
+func ExpandPath(path string) string {
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
+// EnsureOutputDir validates a directory path and creates it if it doesn't exist.
+// Returns nil if the directory exists and is writable, or was successfully created.
+// Returns an error describing the problem otherwise.
+//
+// Note: Tilde expansion is performed via ExpandPath. If expansion fails (e.g.,
+// home directory cannot be determined), the path is used as-is, which will
+// likely result in an error from os.Stat or os.MkdirAll.
+func EnsureOutputDir(dir string) error {
+	if dir == "" {
 		return fmt.Errorf("output-dir cannot be empty")
 	}
 
-	// Expand ~ to home directory.
-	if strings.HasPrefix(d, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("cannot expand ~: %w", err)
-		}
-		d = filepath.Join(home, d[2:])
-	}
+	// Expand ~ to home directory (uses ExpandPath to avoid duplication).
+	dir = ExpandPath(dir)
 
 	// Check if path exists.
-	info, err := os.Stat(d)
+	info, err := os.Stat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Directory doesn't exist - try to create it.
-			if err := os.MkdirAll(d, 0750); err != nil { // #nosec G301 -- user output dir
+			if err := os.MkdirAll(dir, dirPerm); err != nil { // #nosec G301 -- user output dir
 				return fmt.Errorf("cannot create directory: %w", err)
 			}
 			return nil
@@ -254,42 +311,20 @@ func ValidOutputDir(d string) error {
 
 	// Check if it's a directory.
 	if !info.IsDir() {
-		return fmt.Errorf("path is not a directory: %s", d)
+		return fmt.Errorf("%w: %s", ErrNotDirectory, dir)
 	}
 
 	// Check if writable by attempting to create a temp file.
-	testFile := filepath.Join(d, ".go-transcript-write-test")
+	testFile := filepath.Join(dir, ".go-transcript-write-test")
 	f, err := os.Create(testFile) // #nosec G304 -- path is constructed from validated dir
 	if err != nil {
-		return fmt.Errorf("directory is not writable: %w", err)
+		return fmt.Errorf("%w: %s", ErrNotWritable, dir)
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(testFile)
-		return fmt.Errorf("directory is not writable: %w", err)
+		return fmt.Errorf("%w: %s", ErrNotWritable, dir)
 	}
 	_ = os.Remove(testFile) // Best effort cleanup, ignore error
 
 	return nil
-}
-
-// ExpandPath expands ~ to the user's home directory.
-func ExpandPath(p string) string {
-	if strings.HasPrefix(p, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return p
-		}
-		return filepath.Join(home, p[2:])
-	}
-	return p
-}
-
-// Dir returns the configuration directory path (exported for testing).
-func Dir() (string, error) {
-	return dir()
-}
-
-// ParseFile reads a key=value config file (exported for testing).
-func ParseFile(p string) (map[string]string, error) {
-	return parseFile(p)
 }
