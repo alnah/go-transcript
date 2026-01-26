@@ -30,7 +30,7 @@ const (
 	defaultDeepSeekMaxRetries  = 3
 	defaultDeepSeekBaseDelay   = 1 * time.Second
 	defaultDeepSeekMaxDelay    = 30 * time.Second
-	defaultDeepSeekHTTPTimeout = 5 * time.Minute // Long timeout for large transcripts
+	defaultDeepSeekHTTPTimeout = 10 * time.Minute // Long timeout for large transcripts
 
 	// Response size limit to prevent OOM from malformed responses (10MB)
 	maxResponseSize = 10 * 1024 * 1024
