@@ -73,14 +73,10 @@ func exitCode(err error) int {
 		return ExitInterrupt
 	}
 
-	// Usage errors (ExitUsage = 2): Cobra flag errors.
-	errMsg := err.Error()
-	if strings.Contains(errMsg, "required flag") ||
-		strings.Contains(errMsg, "unknown flag") ||
-		strings.Contains(errMsg, "unknown shorthand") ||
-		strings.Contains(errMsg, "flag needs an argument") ||
-		strings.Contains(errMsg, "invalid argument") ||
-		strings.Contains(errMsg, "if any flags in the group") {
+	// Usage errors (ExitUsage = 2): Cobra flag/arg parsing errors.
+	// Cobra doesn't expose typed errors, so we check for known error message patterns.
+	// These patterns are stable across Cobra versions (tested with v1.8+).
+	if isCobraUsageError(err) {
 		return ExitUsage
 	}
 
@@ -112,4 +108,33 @@ func exitCode(err error) int {
 	}
 
 	return ExitGeneral
+}
+
+// cobraUsageErrorPatterns contains error message substrings that indicate Cobra usage errors.
+// These patterns are stable across Cobra versions (tested with v1.8+).
+// Cobra doesn't expose typed errors, so string matching is the only reliable approach.
+var cobraUsageErrorPatterns = []string{
+	"required flag",             // Missing required flag
+	"unknown flag",              // Flag doesn't exist
+	"unknown shorthand",         // Short flag doesn't exist
+	"flag needs an argument",    // Flag provided without value
+	"invalid argument",          // Invalid flag value type
+	"if any flags in the group", // Mutually exclusive flag violation
+	"accepts ",                  // Wrong number of arguments (e.g., "accepts 1 arg(s)")
+	"requires at least",         // Too few arguments
+	"requires at most",          // Too many arguments
+}
+
+// isCobraUsageError checks if an error is a Cobra usage/parsing error.
+func isCobraUsageError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	for _, pattern := range cobraUsageErrorPatterns {
+		if strings.Contains(errMsg, pattern) {
+			return true
+		}
+	}
+	return false
 }
