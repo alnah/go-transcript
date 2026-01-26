@@ -31,7 +31,9 @@ type InterruptHandler struct {
 	firstInterrupt time.Time
 	interrupted    bool
 	aborted        bool
+	stopped        bool
 	cancelFunc     context.CancelFunc
+	done           chan struct{} // Signals listen goroutine to exit
 
 	// Injected dependencies (for testing)
 	exitFunc func(int)
@@ -77,42 +79,59 @@ func newInterruptHandler(parent context.Context, opts interruptOptions) (*Interr
 
 	h := &InterruptHandler{
 		cancelFunc: cancel,
+		done:       make(chan struct{}),
 		exitFunc:   exitFunc,
 		nowFunc:    nowFunc,
 		stderr:     stderr,
 	}
 
-	go h.listen(opts.sigCh)
+	// Only start listener if sigCh is provided (nil check for safety)
+	if opts.sigCh != nil {
+		go h.listen(opts.sigCh)
+	}
 
 	return h, ctx
 }
 
 // listen handles incoming signals.
 func (h *InterruptHandler) listen(sigCh <-chan os.Signal) {
-	for range sigCh {
-		h.mu.Lock()
-		now := h.nowFunc()
+	for {
+		select {
+		case <-h.done:
+			return
+		case _, ok := <-sigCh:
+			if !ok {
+				return // Channel closed
+			}
 
-		if !h.interrupted {
-			// First interrupt
-			h.interrupted = true
-			h.firstInterrupt = now
-			h.cancelFunc()
+			h.mu.Lock()
+			if h.stopped {
+				h.mu.Unlock()
+				return
+			}
+			now := h.nowFunc()
+
+			if !h.interrupted {
+				// First interrupt
+				h.interrupted = true
+				h.firstInterrupt = now
+				h.cancelFunc()
+				h.mu.Unlock()
+				continue
+			}
+
+			// Second interrupt - check if within window
+			if now.Sub(h.firstInterrupt) <= interruptWindow {
+				h.aborted = true
+				h.mu.Unlock()
+				// Exit immediately on double Ctrl+C
+				fmt.Fprintln(h.stderr, "\nAborted.")
+				h.exitFunc(ExitInterrupt)
+				return // In case exitFunc doesn't actually exit (tests)
+			}
+
 			h.mu.Unlock()
-			continue
 		}
-
-		// Second interrupt - check if within window
-		if now.Sub(h.firstInterrupt) <= interruptWindow {
-			h.aborted = true
-			h.mu.Unlock()
-			// Exit immediately on double Ctrl+C
-			fmt.Fprintln(h.stderr, "\nAborted.")
-			h.exitFunc(ExitInterrupt)
-			return // In case exitFunc doesn't actually exit (tests)
-		}
-
-		h.mu.Unlock()
 	}
 }
 
@@ -173,5 +192,14 @@ func (h *InterruptHandler) WaitForDecision(message string) InterruptBehavior {
 
 // Stop cleans up the handler. Should be called when done.
 func (h *InterruptHandler) Stop() {
+	h.mu.Lock()
+	if h.stopped {
+		h.mu.Unlock()
+		return
+	}
+	h.stopped = true
+	h.mu.Unlock()
+
 	signal.Reset(syscall.SIGINT, syscall.SIGTERM)
+	close(h.done) // Signal listen goroutine to exit
 }

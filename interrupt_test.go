@@ -227,12 +227,11 @@ func TestInterruptHandler_DoubleInterrupt_WithinWindow_WritesMessage(t *testing.
 	clock := newMockClock(time.Date(2026, 1, 25, 12, 0, 0, 0, time.UTC))
 	stderr := &syncBuffer{}
 
-	h, _, _ := testInterruptHandler(t, interruptOptions{
+	_, _, _ = testInterruptHandler(t, interruptOptions{
 		sigCh:   sigCh,
 		nowFunc: clock.Now,
 		stderr:  stderr,
 	})
-	_ = h
 
 	// Send first signal
 	sigCh <- os.Interrupt
@@ -259,14 +258,13 @@ func TestInterruptHandler_DoubleInterrupt_AtExactBoundary_CallsExit(t *testing.T
 
 	var exitCalled atomic.Bool
 
-	h, _, _ := testInterruptHandler(t, interruptOptions{
+	_, _, _ = testInterruptHandler(t, interruptOptions{
 		sigCh:   sigCh,
 		nowFunc: clock.Now,
 		exitFunc: func(code int) {
 			exitCalled.Store(true)
 		},
 	})
-	_ = h
 
 	// Send first signal
 	sigCh <- os.Interrupt
