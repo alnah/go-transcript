@@ -138,7 +138,7 @@ func runRecord(ctx context.Context, env *Env, opts recordOptions) error {
 	size, err := fileSize(opts.output)
 	if err != nil {
 		// File might not exist if recording failed early.
-		return fmt.Errorf("recording failed: output file not created")
+		return fmt.Errorf("recording failed: output file not created: %w", err)
 	}
 
 	fmt.Fprintf(env.Stderr, "Recording complete: %s (%s)\n", opts.output, format.Size(size))
