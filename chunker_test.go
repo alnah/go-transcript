@@ -475,6 +475,10 @@ func (m *mockChunker) Chunk(_ context.Context, _ string) ([]Chunk, error) {
 // Group D: selectCutPoints tests (pure logic)
 // =============================================================================
 
+// testBytesPerSecond is used in selectCutPoints tests to calculate chunk sizes.
+// 6000 bytes/s is a reasonable estimate for OGG Vorbis at 48kbps.
+const testBytesPerSecond = 6000
+
 func TestSelectCutPoints(t *testing.T) {
 	t.Parallel()
 
@@ -501,8 +505,8 @@ func TestSelectCutPoints(t *testing.T) {
 		{
 			name:           "no_silences",
 			silences:       nil,
-			bytesPerSecond: 6000,
-			maxChunkSize:   600000, // 100s at 6000 bytes/s
+			bytesPerSecond: testBytesPerSecond,
+			maxChunkSize:   testBytesPerSecond * 100, // 100s
 			wantCuts:       0,
 		},
 		{
@@ -511,8 +515,8 @@ func TestSelectCutPoints(t *testing.T) {
 				{start: 10 * time.Second, end: 11 * time.Second},
 				{start: 30 * time.Second, end: 31 * time.Second},
 			},
-			bytesPerSecond: 6000,
-			maxChunkSize:   600000, // 100s - file fits
+			bytesPerSecond: testBytesPerSecond,
+			maxChunkSize:   testBytesPerSecond * 100, // 100s - file fits
 			wantCuts:       0,
 		},
 		{
@@ -523,8 +527,8 @@ func TestSelectCutPoints(t *testing.T) {
 				{start: 90 * time.Second, end: 91 * time.Second},   // 90.5-30.5=60s >= 50s, CUT at 60.5s, then 90.5-60.5=30s < 50s, candidate
 				{start: 120 * time.Second, end: 121 * time.Second}, // 120.5-60.5=60s >= 50s, CUT at 90.5s
 			},
-			bytesPerSecond: 6000,
-			maxChunkSize:   300000, // 50s max
+			bytesPerSecond: testBytesPerSecond,
+			maxChunkSize:   testBytesPerSecond * 50, // 50s max
 			wantCuts:       3,
 			verifyCuts: func(t *testing.T, cuts []time.Duration) {
 				// Cuts at last valid candidates: 30.5s, 60.5s, 90.5s
@@ -541,8 +545,8 @@ func TestSelectCutPoints(t *testing.T) {
 				{start: 75 * time.Second, end: 76 * time.Second},   // 75.5-25.5=50s >= 30s, CUT at 50.5s, then 75.5-50.5=25s < 30s, candidate
 				{start: 100 * time.Second, end: 101 * time.Second}, // 100.5-50.5=50s >= 30s, CUT at 75.5s
 			},
-			bytesPerSecond: 6000,
-			maxChunkSize:   180000, // 30s max
+			bytesPerSecond: testBytesPerSecond,
+			maxChunkSize:   testBytesPerSecond * 30, // 30s max
 			wantCuts:       3,
 			verifyCuts: func(t *testing.T, cuts []time.Duration) {
 				assertEqual(t, cuts[0], 25500*time.Millisecond)
@@ -555,8 +559,8 @@ func TestSelectCutPoints(t *testing.T) {
 			silences: []silencePoint{
 				{start: 50 * time.Second, end: 51 * time.Second}, // Midpoint 50.5s >= 50.5s, no candidate, must cut here
 			},
-			bytesPerSecond: 6000,
-			maxChunkSize:   303000, // 50.5s exactly
+			bytesPerSecond: testBytesPerSecond,
+			maxChunkSize:   int64(float64(testBytesPerSecond) * 50.5), // 50.5s exactly
 			wantCuts:       1,
 		},
 		{
@@ -567,8 +571,8 @@ func TestSelectCutPoints(t *testing.T) {
 				{start: 14 * time.Second, end: 15 * time.Second}, // 14.5s < 50s, candidate (overwrites)
 				{start: 60 * time.Second, end: 61 * time.Second}, // 60.5s >= 50s, CUT at 14.5s
 			},
-			bytesPerSecond: 6000,
-			maxChunkSize:   300000, // 50s max
+			bytesPerSecond: testBytesPerSecond,
+			maxChunkSize:   testBytesPerSecond * 50, // 50s max
 			wantCuts:       1,
 			verifyCuts: func(t *testing.T, cuts []time.Duration) {
 				// Should cut at 14.5s (last valid silence before 60.5s exceeded limit)
@@ -582,8 +586,8 @@ func TestSelectCutPoints(t *testing.T) {
 				{start: 20 * time.Second, end: 21 * time.Second},
 				{start: 30 * time.Second, end: 31 * time.Second},
 			},
-			bytesPerSecond: 6000,
-			maxChunkSize:   600000, // 100s max - all silences under
+			bytesPerSecond: testBytesPerSecond,
+			maxChunkSize:   testBytesPerSecond * 100, // 100s max - all silences under
 			wantCuts:       0,
 		},
 	}
