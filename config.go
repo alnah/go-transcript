@@ -123,7 +123,7 @@ func SaveConfigValue(key, value string) error {
 
 	// Ensure config directory exists.
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil { // #nosec G301 -- user config dir
 		return fmt.Errorf("cannot create config directory: %w", err)
 	}
 
@@ -243,7 +243,7 @@ func ValidOutputDir(dir string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Directory doesn't exist - try to create it.
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := os.MkdirAll(dir, 0750); err != nil { // #nosec G301 -- user output dir
 				return fmt.Errorf("cannot create directory: %w", err)
 			}
 			return nil
