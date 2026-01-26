@@ -10,7 +10,7 @@ import (
 )
 
 // =============================================================================
-// Groupe A: Tests fonctions de parsing (pures, parallélisables)
+// Group A: Parsing function tests (pure, parallelizable)
 // =============================================================================
 
 func TestFormatDuration(t *testing.T) {
@@ -284,7 +284,7 @@ func TestParseSilenceOutput_Fixture(t *testing.T) {
 }
 
 // =============================================================================
-// Groupe B/C: Tests constructeurs (table-driven unifié)
+// Group B/C: Constructor tests (unified table-driven)
 // =============================================================================
 
 func TestNewTimeChunker(t *testing.T) {
@@ -472,7 +472,7 @@ func (m *mockChunker) Chunk(_ context.Context, _ string) ([]Chunk, error) {
 }
 
 // =============================================================================
-// Groupe D: Tests selectCutPoints (logique pure)
+// Group D: selectCutPoints tests (pure logic)
 // =============================================================================
 
 func TestSelectCutPoints(t *testing.T) {
@@ -628,7 +628,7 @@ func TestSilencePoint_Midpoint(t *testing.T) {
 }
 
 // =============================================================================
-// Groupe E: Tests avec mock FFmpeg (nécessite contrôle strict du mock)
+// Group E: Mock FFmpeg tests (requires strict mock control)
 // =============================================================================
 
 // requireFFmpegMock installs a mock and ensures cleanup.
@@ -764,7 +764,7 @@ func TestSilenceChunker_Chunk_FileNotFound(t *testing.T) {
 }
 
 // =============================================================================
-// Groupe F: Tests Chunk struct et CleanupChunks
+// Group F: Chunk struct and CleanupChunks tests
 // =============================================================================
 
 func TestChunk_Duration(t *testing.T) {
