@@ -1,0 +1,750 @@
+package restructure_test
+
+// Notes:
+// - Tests use black-box approach via package restructure_test
+// - Internal functions are tested via export_test.go exports
+// - Uses httptest.Server to mock DeepSeek API responses
+// - Retry delays are set to 1ms to keep tests fast
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/alnah/go-transcript/internal/restructure"
+	"github.com/alnah/go-transcript/internal/transcribe"
+)
+
+// ---------------------------------------------------------------------------
+// Helpers - DeepSeek mock server
+// ---------------------------------------------------------------------------
+
+// deepSeekResponse creates a mock DeepSeek API response.
+func deepSeekResponse(content string) map[string]any {
+	return map[string]any{
+		"id":      "chatcmpl-test",
+		"object":  "chat.completion",
+		"created": 1234567890,
+		"model":   "deepseek-reasoner",
+		"choices": []map[string]any{
+			{
+				"index": 0,
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": content,
+				},
+				"finish_reason": "stop",
+			},
+		},
+		"usage": map[string]any{
+			"prompt_tokens":     100,
+			"completion_tokens": 50,
+			"total_tokens":      150,
+		},
+	}
+}
+
+// deepSeekErrorResponse creates a mock DeepSeek API error response.
+func deepSeekErrorResponse(message, errType, code string) map[string]any {
+	return map[string]any{
+		"error": map[string]any{
+			"message": message,
+			"type":    errType,
+			"code":    code,
+		},
+	}
+}
+
+// mockDeepSeekServer creates a test server that returns predefined responses.
+type mockDeepSeekServer struct {
+	*httptest.Server
+	mu          sync.Mutex
+	calls       []deepSeekCall
+	responses   []mockResponse
+	responseIdx int
+}
+
+type deepSeekCall struct {
+	Model    string
+	Messages []map[string]string
+}
+
+type mockResponse struct {
+	statusCode int
+	body       any
+}
+
+func newMockDeepSeekServer() *mockDeepSeekServer {
+	m := &mockDeepSeekServer{}
+	m.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		// Parse request body
+		var req struct {
+			Model    string `json:"model"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		// Record call
+		messages := make([]map[string]string, len(req.Messages))
+		for i, msg := range req.Messages {
+			messages[i] = map[string]string{
+				"role":    msg.Role,
+				"content": msg.Content,
+			}
+		}
+		m.calls = append(m.calls, deepSeekCall{
+			Model:    req.Model,
+			Messages: messages,
+		})
+
+		// Get response
+		var resp mockResponse
+		if m.responseIdx < len(m.responses) {
+			resp = m.responses[m.responseIdx]
+			m.responseIdx++
+		} else if len(m.responses) > 0 {
+			// Use last response if we've exhausted the sequence
+			resp = m.responses[len(m.responses)-1]
+		} else {
+			// Default success response
+			resp = mockResponse{
+				statusCode: http.StatusOK,
+				body:       deepSeekResponse("Default response"),
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.statusCode)
+		json.NewEncoder(w).Encode(resp.body)
+	}))
+	return m
+}
+
+func (m *mockDeepSeekServer) addResponse(statusCode int, body any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.responses = append(m.responses, mockResponse{statusCode, body})
+}
+
+func (m *mockDeepSeekServer) callCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.calls)
+}
+
+func (m *mockDeepSeekServer) lastCall() deepSeekCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.calls) == 0 {
+		return deepSeekCall{}
+	}
+	return m.calls[len(m.calls)-1]
+}
+
+func (m *mockDeepSeekServer) systemPrompt() string {
+	call := m.lastCall()
+	for _, msg := range call.Messages {
+		if msg["role"] == "system" {
+			return msg["content"]
+		}
+	}
+	return ""
+}
+
+// mustNewDeepSeekRestructurer creates a DeepSeekRestructurer and fails the test if it errors.
+func mustNewDeepSeekRestructurer(t *testing.T, apiKey string, opts ...restructure.DeepSeekOption) *restructure.DeepSeekRestructurer {
+	t.Helper()
+	r, err := restructure.NewDeepSeekRestructurer(apiKey, opts...)
+	if err != nil {
+		t.Fatalf("NewDeepSeekRestructurer failed: %v", err)
+	}
+	return r
+}
+
+// ---------------------------------------------------------------------------
+// TestNewDeepSeekRestructurer - Constructor validation
+// ---------------------------------------------------------------------------
+
+func TestNewDeepSeekRestructurer(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty API key returns error", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := restructure.NewDeepSeekRestructurer("")
+		if err == nil {
+			t.Fatal("expected error for empty API key")
+		}
+		if !errors.Is(err, restructure.ErrEmptyAPIKey) {
+			t.Errorf("expected ErrEmptyAPIKey, got: %v", err)
+		}
+	})
+
+	t.Run("valid API key succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		r, err := restructure.NewDeepSeekRestructurer("test-key")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if r == nil {
+			t.Fatal("expected non-nil restructurer")
+		}
+	})
+
+	t.Run("options with invalid values are ignored", func(t *testing.T) {
+		t.Parallel()
+
+		// These should not panic or error - invalid values should be ignored
+		r, err := restructure.NewDeepSeekRestructurer("test-key",
+			restructure.WithDeepSeekMaxInputTokens(0),  // Should be ignored
+			restructure.WithDeepSeekMaxInputTokens(-1), // Should be ignored
+			restructure.WithDeepSeekMaxOutputTokens(0), // Should be ignored
+			restructure.WithDeepSeekMaxRetries(-1),     // Should be ignored (0 is valid)
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if r == nil {
+			t.Fatal("expected non-nil restructurer")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestClassifyDeepSeekError - Error classification
+// ---------------------------------------------------------------------------
+
+func TestClassifyDeepSeekError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		err     error
+		wantErr error
+		wantNil bool
+	}{
+		{
+			name:    "nil error returns nil",
+			err:     nil,
+			wantNil: true,
+		},
+		{
+			name:    "context deadline exceeded",
+			err:     context.DeadlineExceeded,
+			wantErr: transcribe.ErrTimeout,
+		},
+		{
+			name:    "unknown error passes through",
+			err:     errors.New("random error"),
+			wantErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := restructure.ClassifyDeepSeekError(tt.err)
+
+			if tt.wantNil {
+				if got != nil {
+					t.Errorf("expected nil, got %v", got)
+				}
+				return
+			}
+
+			if tt.wantErr == nil {
+				if got == nil {
+					t.Error("expected non-nil error")
+				}
+				return
+			}
+
+			if !errors.Is(got, tt.wantErr) {
+				t.Errorf("expected error wrapping %v, got %v", tt.wantErr, got)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestIsRetryableDeepSeekError - Retry decision
+// ---------------------------------------------------------------------------
+
+func TestIsRetryableDeepSeekError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "rate limit is retryable",
+			err:  transcribe.ErrRateLimit,
+			want: true,
+		},
+		{
+			name: "timeout is retryable",
+			err:  transcribe.ErrTimeout,
+			want: true,
+		},
+		{
+			name: "context canceled is not retryable",
+			err:  context.Canceled,
+			want: false,
+		},
+		{
+			name: "auth failed is not retryable",
+			err:  transcribe.ErrAuthFailed,
+			want: false,
+		},
+		{
+			name: "quota exceeded is not retryable",
+			err:  transcribe.ErrQuotaExceeded,
+			want: false,
+		},
+		{
+			name: "transcript too long is not retryable",
+			err:  restructure.ErrTranscriptTooLong,
+			want: false,
+		},
+		{
+			name: "unknown error is not retryable",
+			err:  errors.New("random error"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := restructure.IsRetryableDeepSeekError(tt.err)
+			if got != tt.want {
+				t.Errorf("IsRetryableDeepSeekError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDeepSeekRestructurer_Restructure - Main restructuring
+// ---------------------------------------------------------------------------
+
+func TestDeepSeekRestructurer_Restructure(t *testing.T) {
+	t.Parallel()
+
+	t.Run("happy path returns restructured content", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		server.addResponse(http.StatusOK, deepSeekResponse("# Restructured Content\n\nThis is the result."))
+
+		r := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("Template prompt here.", nil)),
+			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
+		)
+
+		result, err := r.Restructure(context.Background(), "Raw transcript.", "meeting", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result != "# Restructured Content\n\nThis is the result." {
+			t.Errorf("unexpected result: %s", result)
+		}
+
+		if server.callCount() != 1 {
+			t.Errorf("expected 1 call, got %d", server.callCount())
+		}
+	})
+
+	t.Run("invalid template returns error", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		templateErr := errors.New("unknown template")
+
+		r := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("", templateErr)),
+		)
+
+		_, err := r.Restructure(context.Background(), "transcript", "unknown", "")
+		if err == nil {
+			t.Fatal("expected error for unknown template")
+		}
+
+		if server.callCount() != 0 {
+			t.Error("should not call API if template fails")
+		}
+	})
+
+	t.Run("transcript too long returns error", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		r := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
+			restructure.WithDeepSeekMaxInputTokens(10), // Very low limit
+		)
+
+		// Create transcript that exceeds 10 tokens (10*3=30 chars)
+		longTranscript := strings.Repeat("x", 100)
+
+		_, err := r.Restructure(context.Background(), longTranscript, "meeting", "")
+		if err == nil {
+			t.Fatal("expected error for long transcript")
+		}
+
+		if !errors.Is(err, restructure.ErrTranscriptTooLong) {
+			t.Errorf("expected ErrTranscriptTooLong, got %v", err)
+		}
+
+		if server.callCount() != 0 {
+			t.Error("should not call API if transcript too long")
+		}
+	})
+
+	t.Run("adds language instruction for non-English", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		server.addResponse(http.StatusOK, deepSeekResponse("Contenu restructuré."))
+
+		r := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("Base prompt.", nil)),
+			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
+		)
+
+		_, err := r.Restructure(context.Background(), "transcript", "meeting", "fr")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		prompt := server.systemPrompt()
+		if !strings.Contains(prompt, "Respond in French") {
+			t.Errorf("expected language instruction, got: %s", prompt)
+		}
+	})
+
+	t.Run("no language instruction for English", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		server.addResponse(http.StatusOK, deepSeekResponse("Restructured content."))
+
+		r := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("Base prompt.", nil)),
+			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
+		)
+
+		_, err := r.Restructure(context.Background(), "transcript", "meeting", "en")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		prompt := server.systemPrompt()
+		if strings.Contains(prompt, "Respond in") {
+			t.Errorf("should not add language instruction for English, got: %s", prompt)
+		}
+	})
+
+	t.Run("API returns empty choices", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		server.addResponse(http.StatusOK, map[string]any{
+			"id":      "test",
+			"choices": []any{}, // Empty
+		})
+
+		r := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
+			restructure.WithDeepSeekMaxRetries(0),
+		)
+
+		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		if err == nil {
+			t.Fatal("expected error for empty choices")
+		}
+
+		if !strings.Contains(err.Error(), "no response") {
+			t.Errorf("expected 'no response' error, got: %v", err)
+		}
+	})
+
+	t.Run("uses deepseek-reasoner model by default", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		server.addResponse(http.StatusOK, deepSeekResponse("result"))
+
+		r := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
+		)
+
+		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		call := server.lastCall()
+		if call.Model != "deepseek-reasoner" {
+			t.Errorf("expected model deepseek-reasoner, got %s", call.Model)
+		}
+	})
+
+	t.Run("custom model can be set", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		server.addResponse(http.StatusOK, deepSeekResponse("result"))
+
+		r := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
+			restructure.WithDeepSeekModel("deepseek-chat"),
+		)
+
+		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		call := server.lastCall()
+		if call.Model != "deepseek-chat" {
+			t.Errorf("expected model deepseek-chat, got %s", call.Model)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestDeepSeekRestructurer_HTTPErrors - API error handling
+// ---------------------------------------------------------------------------
+
+func TestDeepSeekRestructurer_HTTPErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		statusCode int
+		body       any
+		wantErr    error
+		retryable  bool
+	}{
+		{
+			name:       "401 unauthorized",
+			statusCode: http.StatusUnauthorized,
+			body:       deepSeekErrorResponse("Invalid API key", "invalid_api_key", "401"),
+			wantErr:    transcribe.ErrAuthFailed,
+			retryable:  false,
+		},
+		{
+			name:       "402 payment required",
+			statusCode: http.StatusPaymentRequired,
+			body:       deepSeekErrorResponse("Insufficient balance", "insufficient_balance", "402"),
+			wantErr:    transcribe.ErrQuotaExceeded,
+			retryable:  false,
+		},
+		{
+			name:       "429 rate limit",
+			statusCode: http.StatusTooManyRequests,
+			body:       deepSeekErrorResponse("Rate limit exceeded", "rate_limit", "429"),
+			wantErr:    transcribe.ErrRateLimit,
+			retryable:  true,
+		},
+		{
+			name:       "500 server error",
+			statusCode: http.StatusInternalServerError,
+			body:       deepSeekErrorResponse("Internal server error", "server_error", "500"),
+			wantErr:    nil, // Server errors are retryable but don't wrap a specific sentinel
+			retryable:  true,
+		},
+		{
+			name:       "503 service unavailable",
+			statusCode: http.StatusServiceUnavailable,
+			body:       deepSeekErrorResponse("Service overloaded", "server_error", "503"),
+			wantErr:    nil,
+			retryable:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newMockDeepSeekServer()
+			t.Cleanup(server.Close)
+
+			// For retryable errors, add multiple failures then success
+			if tt.retryable {
+				server.addResponse(tt.statusCode, tt.body)
+				server.addResponse(tt.statusCode, tt.body)
+				server.addResponse(http.StatusOK, deepSeekResponse("success"))
+			} else {
+				server.addResponse(tt.statusCode, tt.body)
+			}
+
+			r := mustNewDeepSeekRestructurer(t, "test-api-key",
+				restructure.WithDeepSeekBaseURL(server.URL),
+				restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
+				restructure.WithDeepSeekMaxRetries(2),
+				restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
+			)
+
+			result, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+
+			if tt.retryable {
+				// Should eventually succeed after retries
+				if err != nil {
+					t.Fatalf("expected success after retries, got: %v", err)
+				}
+				if result != "success" {
+					t.Errorf("unexpected result: %s", result)
+				}
+				if server.callCount() != 3 {
+					t.Errorf("expected 3 calls (2 failures + 1 success), got %d", server.callCount())
+				}
+			} else {
+				// Should fail without retry
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+					t.Errorf("expected error wrapping %v, got: %v", tt.wantErr, err)
+				}
+				if server.callCount() != 1 {
+					t.Errorf("expected 1 call (no retry), got %d", server.callCount())
+				}
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDeepSeekRestructurer_WithMapReduce - MapReduce integration
+// ---------------------------------------------------------------------------
+
+func TestDeepSeekRestructurer_WithMapReduce(t *testing.T) {
+	t.Parallel()
+
+	t.Run("MapReduce works with DeepSeekRestructurer", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		// Add responses for: 2 map calls + 1 reduce call
+		server.addResponse(http.StatusOK, deepSeekResponse("# Part 1 Result"))
+		server.addResponse(http.StatusOK, deepSeekResponse("# Part 2 Result"))
+		server.addResponse(http.StatusOK, deepSeekResponse("# Merged Final Result"))
+
+		base := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("Base template prompt.", nil)),
+			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
+		)
+
+		mr := restructure.NewMapReduceRestructurer(base,
+			restructure.WithMapReduceMaxTokens(50), // Force splitting
+		)
+
+		// Create paragraphs that will split into 2 chunks
+		para1 := strings.Repeat("a", 300) // ~100 tokens
+		para2 := strings.Repeat("b", 300) // ~100 tokens
+		transcript := para1 + "\n\n" + para2
+
+		result, usedMapReduce, err := mr.Restructure(context.Background(), transcript, "meeting", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if !usedMapReduce {
+			t.Error("should use MapReduce for long transcript")
+		}
+
+		if result != "# Merged Final Result" {
+			t.Errorf("unexpected result: %s", result)
+		}
+
+		if server.callCount() != 3 {
+			t.Errorf("expected 3 API calls (2 map + 1 reduce), got %d", server.callCount())
+		}
+	})
+
+	t.Run("short transcript skips MapReduce with DeepSeek", func(t *testing.T) {
+		t.Parallel()
+
+		server := newMockDeepSeekServer()
+		t.Cleanup(server.Close)
+
+		server.addResponse(http.StatusOK, deepSeekResponse("Simple result."))
+
+		base := mustNewDeepSeekRestructurer(t, "test-api-key",
+			restructure.WithDeepSeekBaseURL(server.URL),
+			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
+			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
+		)
+
+		mr := restructure.NewMapReduceRestructurer(base,
+			restructure.WithMapReduceMaxTokens(1000), // High limit
+		)
+
+		result, usedMapReduce, err := mr.Restructure(context.Background(), "Short transcript.", "meeting", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if usedMapReduce {
+			t.Error("should not use MapReduce for short transcript")
+		}
+
+		if result != "Simple result." {
+			t.Errorf("unexpected result: %s", result)
+		}
+
+		if server.callCount() != 1 {
+			t.Errorf("expected 1 API call, got %d", server.callCount())
+		}
+	})
+}
