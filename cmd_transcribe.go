@@ -208,7 +208,7 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diari
 	// === RESTRUCTURE (optional) ===
 
 	finalOutput := transcript
-	if template != "" {
+	if template != "" && strings.TrimSpace(transcript) != "" {
 		fmt.Fprintf(os.Stderr, "Restructuring with template '%s'...\n", template)
 
 		// Default output language to input language if not specified
