@@ -91,7 +91,8 @@ transcript record -d 30m --loopback -o call.ogg
 - **Audio recording** - Microphone, system audio (loopback), or both mixed
 - **Automatic chunking** - Splits at silences to respect OpenAI's 25MB limit
 - **Parallel transcription** - Concurrent API requests (configurable 1-10)
-- **Template restructuring** - `brainstorm`, `meeting`, `lecture` formats
+- **Template restructuring** - `brainstorm`, `meeting`, `lecture`, `notes` formats
+- **Multi-provider support** - OpenAI or DeepSeek for restructuring
 - **Language support** - Specify audio language, translate output
 - **Graceful interrupts** - Ctrl+C stops recording, continues transcription
 
@@ -150,7 +151,8 @@ transcript transcribe french.ogg -o notes.md -l fr --output-lang en -t meeting
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--output` | `-o` | `<input>.md` | Output file path |
-| `--template` | `-t` | | Restructure template: `brainstorm`, `meeting`, `lecture` |
+| `--template` | `-t` | | Restructure template: `brainstorm`, `meeting`, `lecture`, `notes` |
+| `--provider` | | `openai` | LLM provider for restructuring: `openai`, `deepseek` |
 | `--language` | `-l` | auto-detect | Audio language (ISO 639-1: `en`, `fr`, `pt-BR`) |
 | `--output-lang` | | same as input | Output language for restructured text |
 | `--parallel` | `-p` | `10` | Max concurrent API requests (1-10) |
@@ -175,9 +177,9 @@ transcript live -d 2h --mix -t meeting --diarize -o call.md
 
 Inherits all flags from `record` and `transcribe`, plus:
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--keep-audio` | `false` | Preserve the audio file after transcription |
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--keep-audio` | `-k` | `false` | Preserve the audio file after transcription |
 
 </details>
 
@@ -213,7 +215,8 @@ transcript config list
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | Yes | | OpenAI API key for transcription and restructuring |
+| `OPENAI_API_KEY` | Yes | | OpenAI API key for transcription (and restructuring with `--provider openai`) |
+| `DEEPSEEK_API_KEY` | No | | DeepSeek API key (required when using `--provider deepseek`) |
 | `TRANSCRIPT_OUTPUT_DIR` | No | `.` | Default output directory |
 | `FFMPEG_PATH` | No | auto | Path to FFmpeg binary (skips auto-download) |
 
@@ -253,12 +256,22 @@ Templates transform raw transcripts into structured markdown.
 |----------|---------|------------------|
 | `brainstorm` | Idea generation sessions | H1 topic, H2 themes, bullet points, key insights, actions |
 | `meeting` | Meeting notes | H1 subject, participants, topics discussed, decisions, action items |
-| `lecture` | Course/conference notes | H1 subject, H2 concepts, definitions in bold, key quotes |
+| `lecture` | Course/conference lectures | Readable prose with H1/H2/H3 headers, bold key terms |
+| `notes` | Bullet-point lecture notes | H2 thematic headers, hierarchical bullet points, bold terms |
 
-Templates are in French by default. Use `--output-lang` to translate:
+Templates output English by default. Use `--output-lang` to translate:
 
 ```bash
-transcript transcribe audio.ogg -t meeting --output-lang en
+transcript transcribe audio.ogg -t meeting --output-lang fr
+```
+
+### Provider Selection
+
+Restructuring uses OpenAI by default. Use DeepSeek for alternative processing:
+
+```bash
+# Use DeepSeek for restructuring (requires DEEPSEEK_API_KEY)
+transcript transcribe audio.ogg -t lecture --provider deepseek
 ```
 
 ## Supported Formats
@@ -341,8 +354,9 @@ Download from: https://vb-audio.com/Cable/
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "OPENAI_API_KEY not set" | Missing API key | `export OPENAI_API_KEY=sk-...` |
+| "DEEPSEEK_API_KEY not set" | Missing key for DeepSeek | `export DEEPSEEK_API_KEY=sk-...` |
 | "rate limit exceeded" | Too many requests | Reduce `--parallel` or wait |
-| "quota exceeded" | Billing issue | Check OpenAI account billing |
+| "quota exceeded" | Billing issue | Check OpenAI/DeepSeek account billing |
 | "authentication failed" | Invalid API key | Verify your API key |
 
 ### Transcript too long
