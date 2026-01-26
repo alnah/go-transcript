@@ -9,7 +9,7 @@ before:
 builds:
   - id: transcript
     binary: transcript
-    main: .
+    main: ./cmd/transcript
     env:
       - CGO_ENABLED=0
     goos:
