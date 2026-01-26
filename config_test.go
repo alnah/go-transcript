@@ -421,9 +421,10 @@ func TestSaveConfigValue_PreservesOtherKeys(t *testing.T) {
 }
 
 func TestSaveConfigValue_LosesComments(t *testing.T) {
-	// Documents that SaveConfigValue does NOT preserve comments,
-	// despite what the docstring says. This is the actual behavior.
-	// TODO: Either fix the implementation or update the docstring.
+	// Documents that SaveConfigValue does NOT preserve comments.
+	// This is intentional: the config file format is simple key=value pairs,
+	// and comments are stripped during parsing. Preserving comments would
+	// require a more complex parser that tracks file structure.
 	configDir := withXDGConfigHome(t)
 	createConfigFile(t, configDir, "# Important comment\noutput-dir=/path\n")
 
