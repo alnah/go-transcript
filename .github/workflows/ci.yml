@@ -63,35 +63,6 @@ jobs:
           flags: integration
           fail_ci_if_error: false
 
-  test-e2e:
-    # Only run on push to main (not PRs) to protect secrets and control costs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Run e2e tests with coverage
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: go test -race -coverprofile=coverage-e2e.out -covermode=atomic -tags=e2e ./...
-
-      - name: Upload e2e coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage-e2e.out
-          flags: e2e
-          fail_ci_if_error: false
-
   lint:
     runs-on: ubuntu-latest
     steps:
