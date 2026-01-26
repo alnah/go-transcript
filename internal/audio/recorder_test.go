@@ -9,6 +9,7 @@ package audio_test
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -640,6 +641,13 @@ func TestDeviceError(t *testing.T) {
 	// We test this indirectly through detectDefaultDevice behavior
 	t.Run("error contains help text", func(t *testing.T) {
 		t.Parallel()
+
+		// This test uses macOS AVFoundation output format.
+		// On Linux, parseALSADevices returns hardcoded defaults regardless of output,
+		// so this test only works on macOS.
+		if runtime.GOOS != "darwin" {
+			t.Skip("test uses macOS AVFoundation device listing format")
+		}
 
 		// Mock that returns no devices
 		mockRunner := &mockFFmpegRunner{
