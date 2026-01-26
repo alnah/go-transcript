@@ -63,44 +63,87 @@ var validLanguages = map[string]bool{
 	"zh": true, // Chinese
 }
 
-// displayNames maps language codes to human-readable names.
-// Used by DisplayName for user-facing output.
+// displayNames maps language codes to human-readable names for user-facing output.
+// All base codes from validLanguages are included, plus common regional variants.
+// Used by DisplayName to provide friendly names in prompts and messages.
 var displayNames = map[string]string{
-	"en":    "English",
+	// Base languages (aligned with validLanguages)
+	"af": "Afrikaans",
+	"ar": "Arabic",
+	"bg": "Bulgarian",
+	"bn": "Bengali",
+	"ca": "Catalan",
+	"cs": "Czech",
+	"da": "Danish",
+	"de": "German",
+	"el": "Greek",
+	"en": "English",
+	"es": "Spanish",
+	"et": "Estonian",
+	"fa": "Persian",
+	"fi": "Finnish",
+	"fr": "French",
+	"gu": "Gujarati",
+	"he": "Hebrew",
+	"hi": "Hindi",
+	"hr": "Croatian",
+	"hu": "Hungarian",
+	"id": "Indonesian",
+	"it": "Italian",
+	"ja": "Japanese",
+	"kn": "Kannada",
+	"ko": "Korean",
+	"lt": "Lithuanian",
+	"lv": "Latvian",
+	"mk": "Macedonian",
+	"ml": "Malayalam",
+	"mr": "Marathi",
+	"ms": "Malay",
+	"nl": "Dutch",
+	"no": "Norwegian",
+	"pa": "Punjabi",
+	"pl": "Polish",
+	"pt": "Portuguese",
+	"ro": "Romanian",
+	"ru": "Russian",
+	"sk": "Slovak",
+	"sl": "Slovenian",
+	"sr": "Serbian",
+	"sv": "Swedish",
+	"sw": "Swahili",
+	"ta": "Tamil",
+	"te": "Telugu",
+	"th": "Thai",
+	"tl": "Tagalog",
+	"tr": "Turkish",
+	"uk": "Ukrainian",
+	"ur": "Urdu",
+	"vi": "Vietnamese",
+	"zh": "Chinese",
+
+	// Regional variants (common locales)
 	"en-us": "American English",
 	"en-gb": "British English",
-	"fr":    "French",
-	"fr-ca": "Canadian French",
-	"es":    "Spanish",
 	"es-mx": "Mexican Spanish",
-	"pt":    "Portuguese",
+	"fr-ca": "Canadian French",
 	"pt-br": "Brazilian Portuguese",
 	"pt-pt": "European Portuguese",
-	"zh":    "Chinese",
 	"zh-cn": "Simplified Chinese",
 	"zh-tw": "Traditional Chinese",
-	"de":    "German",
-	"it":    "Italian",
-	"ja":    "Japanese",
-	"ko":    "Korean",
-	"ru":    "Russian",
-	"ar":    "Arabic",
-	"nl":    "Dutch",
-	"pl":    "Polish",
-	"sv":    "Swedish",
-	"da":    "Danish",
-	"no":    "Norwegian",
-	"fi":    "Finnish",
 }
 
 // Normalize normalizes a language code to lowercase with hyphen separator.
-// Accepts: "pt-BR", "pt_BR", "PT-BR", "pt-br" -> "pt-br"
+// Converts underscores to hyphens and lowercases the entire string.
+// Does not trim whitespace or validate format.
+// Examples: "pt-BR" -> "pt-br", "pt_BR" -> "pt-br", "PT-BR" -> "pt-br"
 func Normalize(lang string) string {
 	return strings.ToLower(strings.ReplaceAll(lang, "_", "-"))
 }
 
 // Validate checks if the language code is valid.
-// Accepts ISO 639-1 codes (e.g., "en", "fr") and locales (e.g., "pt-BR", "zh-CN").
+// Accepts ISO 639-1 codes (e.g., "en", "fr") or locales with valid base (e.g., "pt-BR", "zh-CN").
+// Only the base code is validated; regional suffixes are ignored.
+// Returns nil for empty string (auto-detect mode).
 // Returns ErrInvalid if the base language is not recognized.
 func Validate(lang string) error {
 	if lang == "" {
@@ -109,7 +152,7 @@ func Validate(lang string) error {
 
 	base := BaseCode(lang)
 	if !validLanguages[base] {
-		return fmt.Errorf("invalid language code %q (use ISO 639-1 codes like 'en', 'fr', 'pt-BR'): %w",
+		return fmt.Errorf("invalid language code %q (use ISO 639-1 codes like 'en', 'fr', or locales like 'pt-BR'): %w",
 			lang, ErrInvalid)
 	}
 
@@ -150,8 +193,9 @@ func IsEnglish(lang string) bool {
 	return normalized == "en" || strings.HasPrefix(normalized, "en-")
 }
 
-// DisplayName returns a human-readable name for common locales.
-// Falls back to the code itself for unknown locales.
+// DisplayName returns a human-readable name for a language code.
+// Lookup order: exact locale match -> base language -> original code.
+// Returns empty string for empty input.
 // Used in the restructuring prompt instruction.
 func DisplayName(lang string) string {
 	normalized := Normalize(lang)

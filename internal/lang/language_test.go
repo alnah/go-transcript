@@ -341,6 +341,12 @@ func TestDisplayName(t *testing.T) {
 		{name: "simplified chinese", input: "zh-cn", want: "Simplified Chinese"},
 		{name: "traditional chinese", input: "zh-tw", want: "Traditional Chinese"},
 
+		// Less common languages (all validLanguages have display names)
+		{name: "swahili", input: "sw", want: "Swahili"},
+		{name: "tagalog", input: "tl", want: "Tagalog"},
+		{name: "macedonian", input: "mk", want: "Macedonian"},
+		{name: "gujarati", input: "gu", want: "Gujarati"},
+
 		// Case normalization
 		{name: "uppercase english", input: "EN", want: "English"},
 		{name: "mixed case locale", input: "Pt-Br", want: "Brazilian Portuguese"},
@@ -371,4 +377,3 @@ func TestDisplayName(t *testing.T) {
 		})
 	}
 }
-
