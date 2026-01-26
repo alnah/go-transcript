@@ -71,6 +71,7 @@ func TranscribeCmd(env *Env) *cobra.Command {
 		parallel   int
 		language   string
 		outputLang string
+		provider   string
 	)
 
 	cmd := &cobra.Command{
@@ -81,15 +82,19 @@ func TranscribeCmd(env *Env) *cobra.Command {
 The audio is split into chunks at natural silence points, transcribed in parallel,
 and optionally restructured using a template.
 
+Transcription always uses OpenAI. Restructuring (--template) uses OpenAI by default,
+or DeepSeek with --provider deepseek.
+
 Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
 		Example: `  transcript transcribe session.ogg -o notes.md -t brainstorm
   transcript transcribe meeting.ogg -t meeting --diarize
   transcript transcribe lecture.ogg -t lecture -l en
   transcript transcribe session.ogg -l fr --output-lang en -t meeting
+  transcript transcribe session.ogg -t meeting --provider deepseek  # Use DeepSeek for restructuring
   transcript transcribe session.ogg  # Raw transcript, no restructuring`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTranscribe(cmd, env, args[0], output, tmpl, diarize, parallel, language, outputLang)
+			return runTranscribe(cmd, env, args[0], output, tmpl, diarize, parallel, language, outputLang, provider)
 		},
 	}
 
@@ -99,13 +104,14 @@ Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
 	cmd.Flags().IntVarP(&parallel, "parallel", "p", transcribe.MaxRecommendedParallel, "Max concurrent API requests (1-10)")
 	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
 	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language for restructured text (requires --template)")
+	cmd.Flags().StringVar(&provider, "provider", ProviderOpenAI, "LLM provider for restructuring: openai, deepseek")
 
 	return cmd
 }
 
 // runTranscribe executes the transcription pipeline.
-// Validation order: file exists -> format -> output -> template -> language -> parallel -> API key
-func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string, diarize bool, parallel int, language, outputLang string) error {
+// Validation order: file exists -> format -> output -> template -> language -> provider -> parallel -> API keys
+func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string, diarize bool, parallel int, language, outputLang, provider string) error {
 	ctx := cmd.Context()
 
 	// === VALIDATION (fail-fast) ===
@@ -155,13 +161,32 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 		return fmt.Errorf("--output-lang requires --template (raw transcripts use the audio's language)")
 	}
 
-	// 8. Parallel bounds (clamp to 1-10)
+	// 8. Provider validation
+	if provider != ProviderDeepSeek && provider != ProviderOpenAI {
+		return ErrUnsupportedProvider
+	}
+
+	// 9. Parallel bounds (clamp to 1-10)
 	parallel = clampParallel(parallel)
 
-	// 9. API key present
-	apiKey := env.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		return fmt.Errorf("%w (set it with: export OPENAI_API_KEY=sk-...)", ErrAPIKeyMissing)
+	// 10. API keys present (OpenAI always needed for transcription)
+	openaiKey := env.Getenv(EnvOpenAIAPIKey)
+	if openaiKey == "" {
+		return fmt.Errorf("%w (set it with: export %s=sk-...)", ErrAPIKeyMissing, EnvOpenAIAPIKey)
+	}
+
+	// 11. Restructuring API key (only if template specified)
+	var restructureAPIKey string
+	if tmpl != "" {
+		switch provider {
+		case ProviderDeepSeek:
+			restructureAPIKey = env.Getenv(EnvDeepSeekAPIKey)
+			if restructureAPIKey == "" {
+				return fmt.Errorf("%w (set it with: export %s=sk-...)", ErrDeepSeekKeyMissing, EnvDeepSeekAPIKey)
+			}
+		case ProviderOpenAI:
+			restructureAPIKey = openaiKey // Reuse OpenAI key
+		}
 	}
 
 	// === SETUP ===
@@ -198,7 +223,7 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 
 	// === TRANSCRIPTION ===
 
-	transcriber := env.TranscriberFactory.NewTranscriber(apiKey)
+	transcriber := env.TranscriberFactory.NewTranscriber(openaiKey)
 	opts := transcribe.Options{
 		Diarize:  diarize,
 		Language: language,
@@ -218,7 +243,7 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 
 	finalOutput := transcript
 	if tmpl != "" && strings.TrimSpace(transcript) != "" {
-		fmt.Fprintf(env.Stderr, "Restructuring with template '%s'...\n", tmpl)
+		fmt.Fprintf(env.Stderr, "Restructuring with template '%s' (provider: %s)...\n", tmpl, provider)
 
 		// Default output language to input language if not specified
 		effectiveOutputLang := outputLang
@@ -226,7 +251,7 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 			effectiveOutputLang = language
 		}
 
-		mrRestructurer := env.RestructurerFactory.NewMapReducer(apiKey,
+		mrRestructurer, err := env.RestructurerFactory.NewMapReducer(provider, restructureAPIKey,
 			restructure.WithMapReduceProgress(func(phase string, current, total int) {
 				if phase == "map" {
 					fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)
@@ -235,6 +260,9 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 				}
 			}),
 		)
+		if err != nil {
+			return err
+		}
 
 		finalOutput, _, err = mrRestructurer.Restructure(ctx, transcript, tmpl, effectiveOutputLang)
 		if err != nil {
