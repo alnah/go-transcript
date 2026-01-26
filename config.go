@@ -201,25 +201,26 @@ func ListConfig() (map[string]string, error) {
 //  3. If output is empty, use defaultName in outputDir (or cwd if no outputDir)
 //
 // outputDir can come from config or flag.
+// All paths are cleaned using filepath.Clean to normalize separators and remove redundant elements.
 func ResolveOutputPath(output, outputDir, defaultName string) string {
 	// Case 1: Explicit absolute path - use as-is.
 	if output != "" && filepath.IsAbs(output) {
-		return output
+		return filepath.Clean(output)
 	}
 
 	// Case 2: Explicit relative path - combine with outputDir if set.
 	if output != "" {
 		if outputDir != "" {
-			return filepath.Join(outputDir, output)
+			return filepath.Clean(filepath.Join(outputDir, output))
 		}
-		return output
+		return filepath.Clean(output)
 	}
 
 	// Case 3: No output specified - use default name.
 	if outputDir != "" {
-		return filepath.Join(outputDir, defaultName)
+		return filepath.Clean(filepath.Join(outputDir, defaultName))
 	}
-	return defaultName
+	return filepath.Clean(defaultName)
 }
 
 // ValidOutputDir checks if a directory path is valid for use as output-dir.
