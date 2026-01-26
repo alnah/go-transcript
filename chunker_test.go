@@ -631,6 +631,81 @@ func TestSilencePoint_Midpoint(t *testing.T) {
 	}
 }
 
+func TestTrimTrailingSilence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		silences      []silencePoint
+		totalDuration time.Duration
+		want          time.Duration
+	}{
+		{
+			name:          "no_silences",
+			silences:      nil,
+			totalDuration: 10 * time.Minute,
+			want:          10 * time.Minute,
+		},
+		{
+			name: "silence_not_at_end",
+			silences: []silencePoint{
+				{start: 5 * time.Minute, end: 5*time.Minute + 30*time.Second},
+			},
+			totalDuration: 10 * time.Minute,
+			want:          10 * time.Minute, // Silence doesn't extend to end
+		},
+		{
+			name: "short_trailing_silence_ignored",
+			silences: []silencePoint{
+				{start: 9*time.Minute + 57*time.Second, end: 10 * time.Minute},
+			},
+			totalDuration: 10 * time.Minute,
+			want:          10 * time.Minute, // Only 3s silence, below 5s threshold
+		},
+		{
+			name: "long_trailing_silence_trimmed",
+			silences: []silencePoint{
+				{start: 5 * time.Minute, end: 5*time.Minute + 30*time.Second},
+				{start: 9 * time.Minute, end: 10 * time.Minute}, // 1 min trailing silence
+			},
+			totalDuration: 10 * time.Minute,
+			want:          9 * time.Minute, // Trimmed to start of trailing silence
+		},
+		{
+			name: "trailing_silence_within_tolerance",
+			silences: []silencePoint{
+				{start: 9*time.Minute + 50*time.Second, end: 9*time.Minute + 59*time.Second + 500*time.Millisecond}, // Ends 0.5s before total, 9.5s duration
+			},
+			totalDuration: 10 * time.Minute,
+			want:          9*time.Minute + 50*time.Second, // Within 1s tolerance and >= 5s, counts as extending to end
+		},
+		{
+			name: "exactly_5s_trailing_silence",
+			silences: []silencePoint{
+				{start: 9*time.Minute + 55*time.Second, end: 10 * time.Minute},
+			},
+			totalDuration: 10 * time.Minute,
+			want:          9*time.Minute + 55*time.Second, // Exactly 5s, should trim
+		},
+		{
+			name: "just_under_5s_trailing_silence",
+			silences: []silencePoint{
+				{start: 9*time.Minute + 56*time.Second, end: 10 * time.Minute},
+			},
+			totalDuration: 10 * time.Minute,
+			want:          10 * time.Minute, // 4s < 5s threshold, don't trim
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := trimTrailingSilence(tt.silences, tt.totalDuration)
+			assertEqual(t, got, tt.want)
+		})
+	}
+}
+
 // =============================================================================
 // Group E: Mock FFmpeg tests (requires strict mock control)
 // =============================================================================

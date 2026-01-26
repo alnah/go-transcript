@@ -360,7 +360,16 @@ func (sc *SilenceChunker) Chunk(ctx context.Context, audioPath string) ([]Chunk,
 		return sc.fallback.Chunk(ctx, audioPath)
 	}
 
-	// Calculate average bitrate for size estimation.
+	// Trim trailing silence: if last silence extends to end of file, use its start as effective end.
+	// This prevents OpenAI from truncating transcriptions when chunks end with long silence.
+	// Add a small padding (5s) after the trim point to ensure OpenAI captures the last words.
+	effectiveDuration := trimTrailingSilence(silences, totalDuration)
+	const endPadding = 5 * time.Second
+	if effectiveDuration < totalDuration {
+		effectiveDuration = min(effectiveDuration+endPadding, totalDuration)
+	}
+
+	// Calculate average bitrate for size estimation (use effective duration for accuracy).
 	avgBitrate := float64(fileSize) / totalDuration.Seconds() // bytes per second
 
 	// Select cut points that keep chunks under maxChunkSize.
@@ -372,14 +381,40 @@ func (sc *SilenceChunker) Chunk(ctx context.Context, audioPath string) ([]Chunk,
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
-	// Extract chunks.
-	chunks, err := sc.extractChunks(ctx, audioPath, tempDir, cutPoints, totalDuration)
+	// Extract chunks using effective duration (excluding trailing silence).
+	chunks, err := sc.extractChunks(ctx, audioPath, tempDir, cutPoints, effectiveDuration)
 	if err != nil {
 		_ = os.RemoveAll(tempDir)
 		return nil, err
 	}
 
 	return chunks, nil
+}
+
+// trimTrailingSilence returns an effective end duration excluding trailing silence.
+// If the last silence extends to (or very close to) the end of the file, we use
+// the start of that silence as the effective end. This prevents OpenAI from
+// truncating transcriptions when audio ends with long silence.
+func trimTrailingSilence(silences []silencePoint, totalDuration time.Duration) time.Duration {
+	if len(silences) == 0 {
+		return totalDuration
+	}
+
+	lastSilence := silences[len(silences)-1]
+
+	// Check if last silence extends to the end of the file (within 1 second tolerance).
+	// Trim trailing silence >= 5 seconds to avoid OpenAI truncation issues.
+	const tolerance = 1 * time.Second
+	const minTrailingSilence = 5 * time.Second
+
+	silenceDuration := lastSilence.end - lastSilence.start
+	extendsToEnd := totalDuration-lastSilence.end < tolerance
+
+	if extendsToEnd && silenceDuration >= minTrailingSilence {
+		return lastSilence.start
+	}
+
+	return totalDuration
 }
 
 // silencePoint represents a detected silence in the audio.
