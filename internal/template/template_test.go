@@ -27,6 +27,7 @@ func TestGet_ValidTemplates(t *testing.T) {
 		{"brainstorm constant", template.Brainstorm},
 		{"meeting constant", template.Meeting},
 		{"lecture constant", template.Lecture},
+		{"notes constant", template.Notes},
 	}
 
 	for _, tt := range tests {
@@ -93,7 +94,7 @@ func TestNames_ReturnsCanonicalOrder(t *testing.T) {
 	t.Parallel()
 
 	got := template.Names()
-	want := []string{template.Brainstorm, template.Meeting, template.Lecture}
+	want := []string{template.Brainstorm, template.Meeting, template.Lecture, template.Notes}
 
 	if len(got) != len(want) {
 		t.Fatalf("Names() returned %d elements, want %d", len(got), len(want))
@@ -173,6 +174,7 @@ func TestConstants_MatchExpectedValues(t *testing.T) {
 		{"Brainstorm", template.Brainstorm, "brainstorm"},
 		{"Meeting", template.Meeting, "meeting"},
 		{"Lecture", template.Lecture, "lecture"},
+		{"Notes", template.Notes, "notes"},
 	}
 
 	for _, tt := range tests {

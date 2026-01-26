@@ -14,6 +14,7 @@ const (
 	Brainstorm = "brainstorm"
 	Meeting    = "meeting"
 	Lecture    = "lecture"
+	Notes      = "notes"
 )
 
 // templateOrder defines the canonical order for Names().
@@ -22,6 +23,7 @@ var templateOrder = []string{
 	Brainstorm,
 	Meeting,
 	Lecture,
+	Notes,
 }
 
 // templates maps template names to their prompt strings.
@@ -30,6 +32,7 @@ var templates = map[string]string{
 	Brainstorm: brainstormPrompt,
 	Meeting:    meetingPrompt,
 	Lecture:    lecturePrompt,
+	Notes:      notesPrompt,
 }
 
 // Get returns the prompt for the given template name.
@@ -82,19 +85,37 @@ Rules:
 - Do not alter meaning, do not invent anything
 - No table of contents`
 
-const lecturePrompt = `You add structure to a lecture transcript while preserving it verbatim.
+const lecturePrompt = `You restructure a lecture transcript into clean, readable prose while preserving all informational content.
 
 Output format: markdown with # for H1, ## for H2, ### for H3.
 
 Rules:
-- Keep the EXACT text flow - do not reorder, regroup, or summarize
+- Preserve ALL informational content - every distinct concept must appear
+- Write as continuous prose, flowing and readable
 - Insert # title at the beginning (infer subject from content)
 - Insert ## headers when the speaker changes topic
 - Insert ### headers for sub-topics within a section
 - **Bold** key terms and definitions when first introduced
-- Correct obvious transcription errors (spelling, grammar)
-- Remove filler words (um, uh, like, you know, basically)
-- Keep the text as continuous prose, NOT bullet points
-- Every sentence from the transcript must appear in the output, in order
-- Do not alter meaning, do not invent anything
+- Consolidate repetitions: when the same idea is stated multiple times, keep ONE clear formulation
+- Remove verbal padding: filler words, rhetorical questions that add no information, hedging phrases
+- Correct transcription errors (spelling, grammar)
+- Maintain logical order of concepts as presented
+- Do not invent content or alter meaning
+- No table of contents`
+
+const notesPrompt = `You restructure a lecture transcript into organized bullet points while preserving all informational content.
+
+Output format: markdown with ## for themes, bullet points for content.
+
+Rules:
+- Preserve ALL informational content - every distinct concept must appear
+- Group related concepts under ## thematic headers
+- One bullet point = one distinct idea or fact
+- Use sub-bullets for details, examples, or qualifications
+- **Bold** key terms and definitions
+- Consolidate repetitions: merge redundant statements into single clear bullets
+- Remove verbal padding: filler words, rhetorical questions, hedging phrases
+- Correct transcription errors (spelling, grammar)
+- Reorder for logical flow within each theme (not strict transcript order)
+- Do not invent content or alter meaning
 - No table of contents`
