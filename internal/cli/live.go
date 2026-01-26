@@ -440,8 +440,10 @@ func runLive(parentCtx context.Context, env *Env, opts liveOptions) error {
 					}
 				}
 
-				// Create fresh context for transcription (original is canceled)
-				transcribeCtx := context.Background()
+				// Create fresh context for transcription with timeout (original is canceled).
+				// 30 minutes should be sufficient for transcription + restructuring of any recording.
+				transcribeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+				defer cancel()
 
 				// Continue to transcription
 				return runLiveTranscriptionPipeline(transcribeCtx, env, lctx, opts, recordResult.audioPath)
