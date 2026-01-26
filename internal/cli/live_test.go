@@ -74,6 +74,7 @@ func TestRunLive_MissingAPIKey(t *testing.T) {
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 	}
 
@@ -93,13 +94,14 @@ func TestRunLive_InvalidTemplate(t *testing.T) {
 
 	env := &Env{
 		Stderr:         &syncBuffer{},
-		Getenv:         staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:         defaultTestEnv,
 		Now:            fixedTime(time.Now()),
 		FFmpegResolver: &mockFFmpegResolver{},
 		ConfigLoader:   configWithOutputDir(outputDir),
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 		template: "nonexistent-template",
 	}
@@ -120,13 +122,14 @@ func TestRunLive_InvalidLanguage(t *testing.T) {
 
 	env := &Env{
 		Stderr:         &syncBuffer{},
-		Getenv:         staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:         defaultTestEnv,
 		Now:            fixedTime(time.Now()),
 		FFmpegResolver: &mockFFmpegResolver{},
 		ConfigLoader:   configWithOutputDir(outputDir),
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 		language: "invalid-lang",
 	}
@@ -144,13 +147,14 @@ func TestRunLive_OutputLangRequiresTemplate(t *testing.T) {
 
 	env := &Env{
 		Stderr:         &syncBuffer{},
-		Getenv:         staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:         defaultTestEnv,
 		Now:            fixedTime(time.Now()),
 		FFmpegResolver: &mockFFmpegResolver{},
 		ConfigLoader:   configWithOutputDir(outputDir),
 	}
 
 	opts := liveOptions{
+		provider:   ProviderDeepSeek,
 		duration:   30 * time.Minute,
 		outputLang: "en",
 		// No template
@@ -178,13 +182,14 @@ func TestRunLive_OutputExists(t *testing.T) {
 
 	env := &Env{
 		Stderr:         &syncBuffer{},
-		Getenv:         staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:         defaultTestEnv,
 		Now:            fixedTime(time.Now()),
 		FFmpegResolver: &mockFFmpegResolver{},
 		ConfigLoader:   configWithOutputDir(outputDir),
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 		output:   outputPath,
 	}
@@ -212,13 +217,14 @@ func TestRunLive_AudioOutputExists_KeepAudio(t *testing.T) {
 
 	env := &Env{
 		Stderr:         &syncBuffer{},
-		Getenv:         staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:         defaultTestEnv,
 		Now:            fixedTime(time.Now()),
 		FFmpegResolver: &mockFFmpegResolver{},
 		ConfigLoader:   configWithOutputDir(outputDir),
 	}
 
 	opts := liveOptions{
+		provider:  ProviderDeepSeek,
 		duration:  30 * time.Minute,
 		output:    outputPath,
 		keepAudio: true,
@@ -247,13 +253,14 @@ func TestRunLive_FFmpegResolveFails(t *testing.T) {
 
 	env := &Env{
 		Stderr:         &syncBuffer{},
-		Getenv:         staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:         defaultTestEnv,
 		Now:            fixedTime(time.Now()),
 		FFmpegResolver: ffmpegResolver,
 		ConfigLoader:   configWithOutputDir(outputDir),
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 	}
 
@@ -321,7 +328,7 @@ func TestRunLive_Success(t *testing.T) {
 
 	env := &Env{
 		Stderr:             stderr,
-		Getenv:             staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:             defaultTestEnv,
 		Now:                fixedTime(fixedNow),
 		FFmpegResolver:     &mockFFmpegResolver{},
 		ConfigLoader:       configWithOutputDir(outputDir),
@@ -331,6 +338,7 @@ func TestRunLive_Success(t *testing.T) {
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 	}
 
@@ -409,7 +417,7 @@ func TestRunLive_WithKeepAudio(t *testing.T) {
 
 	env := &Env{
 		Stderr:             stderr,
-		Getenv:             staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:             defaultTestEnv,
 		Now:                fixedTime(fixedNow),
 		FFmpegResolver:     &mockFFmpegResolver{},
 		ConfigLoader:       configWithOutputDir(outputDir),
@@ -419,6 +427,7 @@ func TestRunLive_WithKeepAudio(t *testing.T) {
 	}
 
 	opts := liveOptions{
+		provider:  ProviderDeepSeek,
 		duration:  30 * time.Minute,
 		keepAudio: true,
 	}
@@ -460,7 +469,7 @@ func TestRunLive_RecordFails(t *testing.T) {
 
 	env := &Env{
 		Stderr:          &syncBuffer{},
-		Getenv:          staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:          defaultTestEnv,
 		Now:             fixedTime(time.Now()),
 		FFmpegResolver:  &mockFFmpegResolver{},
 		ConfigLoader:    configWithOutputDir(outputDir),
@@ -468,6 +477,7 @@ func TestRunLive_RecordFails(t *testing.T) {
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 	}
 
@@ -526,7 +536,7 @@ func TestRunLive_TranscribeFails(t *testing.T) {
 
 	env := &Env{
 		Stderr:             &syncBuffer{},
-		Getenv:             staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:             defaultTestEnv,
 		Now:                fixedTime(time.Now()),
 		FFmpegResolver:     &mockFFmpegResolver{},
 		ConfigLoader:       configWithOutputDir(outputDir),
@@ -536,6 +546,7 @@ func TestRunLive_TranscribeFails(t *testing.T) {
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 	}
 
@@ -595,7 +606,7 @@ func TestRunLive_LoopbackMode(t *testing.T) {
 
 	env := &Env{
 		Stderr:             &syncBuffer{},
-		Getenv:             staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:             defaultTestEnv,
 		Now:                fixedTime(time.Now()),
 		FFmpegResolver:     &mockFFmpegResolver{},
 		ConfigLoader:       configWithOutputDir(outputDir),
@@ -605,6 +616,7 @@ func TestRunLive_LoopbackMode(t *testing.T) {
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 10 * time.Minute,
 		loopback: true,
 	}
@@ -639,7 +651,7 @@ func TestRunLive_EmptyRecording(t *testing.T) {
 
 	env := &Env{
 		Stderr:          &syncBuffer{},
-		Getenv:          staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:          defaultTestEnv,
 		Now:             fixedTime(time.Now()),
 		FFmpegResolver:  &mockFFmpegResolver{},
 		ConfigLoader:    configWithOutputDir(outputDir),
@@ -647,6 +659,7 @@ func TestRunLive_EmptyRecording(t *testing.T) {
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 	}
 
@@ -776,7 +789,7 @@ func TestRunLive_WithTemplate(t *testing.T) {
 
 	env := &Env{
 		Stderr:              stderr,
-		Getenv:              staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:              defaultTestEnv,
 		Now:                 fixedTime(fixedNow),
 		FFmpegResolver:      &mockFFmpegResolver{},
 		ConfigLoader:        configWithOutputDir(outputDir),
@@ -787,6 +800,7 @@ func TestRunLive_WithTemplate(t *testing.T) {
 	}
 
 	opts := liveOptions{
+		provider: ProviderDeepSeek,
 		duration: 30 * time.Minute,
 		template: "meeting",
 	}
@@ -874,7 +888,7 @@ func TestRunLive_RestructureError(t *testing.T) {
 
 	env := &Env{
 		Stderr:              stderr,
-		Getenv:              staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:              defaultTestEnv,
 		Now:                 fixedTime(time.Now()),
 		FFmpegResolver:      &mockFFmpegResolver{},
 		ConfigLoader:        configWithOutputDir(outputDir),
@@ -885,6 +899,7 @@ func TestRunLive_RestructureError(t *testing.T) {
 	}
 
 	opts := liveOptions{
+		provider:  ProviderDeepSeek,
 		duration:  30 * time.Minute,
 		template:  "brainstorm",
 		keepAudio: true, // To verify warning message
@@ -1144,5 +1159,240 @@ func TestLiveWritePhase_InvalidPath(t *testing.T) {
 	err := LiveWritePhase(env, "/nonexistent/dir/output.md", "content")
 	if err == nil {
 		t.Fatal("expected error for invalid path")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests for provider flag
+// ---------------------------------------------------------------------------
+
+func TestRunLive_InvalidProvider(t *testing.T) {
+	t.Parallel()
+
+	outputDir := t.TempDir()
+
+	env := &Env{
+		Stderr:         &syncBuffer{},
+		Getenv:         defaultTestEnv,
+		Now:            fixedTime(time.Now()),
+		FFmpegResolver: &mockFFmpegResolver{},
+		ConfigLoader:   configWithOutputDir(outputDir),
+	}
+
+	opts := liveOptions{
+		provider: "invalid-provider",
+		duration: 30 * time.Minute,
+	}
+
+	err := RunLive(context.Background(), env, opts)
+	if err == nil {
+		t.Fatal("expected error for invalid provider")
+	}
+	if !errors.Is(err, ErrUnsupportedProvider) {
+		t.Errorf("expected ErrUnsupportedProvider, got %v", err)
+	}
+}
+
+func TestRunLive_ProviderDeepSeek_MissingKey(t *testing.T) {
+	t.Parallel()
+
+	outputDir := t.TempDir()
+
+	// Only provide OpenAI key, not DeepSeek key
+	env := &Env{
+		Stderr: &syncBuffer{},
+		Getenv: func(key string) string {
+			if key == EnvOpenAIAPIKey {
+				return "test-openai-key"
+			}
+			return "" // No DeepSeek key
+		},
+		Now:            fixedTime(time.Now()),
+		FFmpegResolver: &mockFFmpegResolver{},
+		ConfigLoader:   configWithOutputDir(outputDir),
+	}
+
+	opts := liveOptions{
+		provider: ProviderDeepSeek,
+		duration: 30 * time.Minute,
+		template: "brainstorm", // Template triggers restructuring
+	}
+
+	err := RunLive(context.Background(), env, opts)
+	if err == nil {
+		t.Fatal("expected error for missing DeepSeek API key")
+	}
+	if !errors.Is(err, ErrDeepSeekKeyMissing) {
+		t.Errorf("expected ErrDeepSeekKeyMissing, got %v", err)
+	}
+}
+
+func TestRunLive_ProviderOpenAI_ReusesKey(t *testing.T) {
+	t.Parallel()
+
+	outputDir := t.TempDir()
+	fixedNow := time.Date(2026, 1, 25, 14, 30, 52, 0, time.UTC)
+
+	recorder := &mockRecorder{
+		RecordFunc: func(ctx context.Context, duration time.Duration, output string) error {
+			return os.WriteFile(output, []byte("audio data"), 0644)
+		},
+	}
+	recorderFactory := &mockRecorderFactory{
+		NewRecorderFunc: func(ffmpegPath, device string) (audio.Recorder, error) {
+			return recorder, nil
+		},
+	}
+
+	chunkPath := filepath.Join(t.TempDir(), "chunk_0.ogg")
+	if err := os.WriteFile(chunkPath, []byte("chunk"), 0644); err != nil {
+		t.Fatalf("failed to create chunk: %v", err)
+	}
+
+	chunker := &mockChunker{
+		ChunkFunc: func(ctx context.Context, audioPath string) ([]audio.Chunk, error) {
+			return []audio.Chunk{{Path: chunkPath, Index: 0}}, nil
+		},
+	}
+	chunkerFactory := &mockChunkerFactory{
+		NewSilenceChunkerFunc: func(ffmpegPath string) (audio.Chunker, error) {
+			return chunker, nil
+		},
+	}
+
+	transcriber := &mockTranscriber{
+		TranscribeFunc: func(ctx context.Context, audioPath string, opts transcribe.Options) (string, error) {
+			return "transcribed", nil
+		},
+	}
+	transcriberFactory := &mockTranscriberFactory{
+		NewTranscriberFunc: func(apiKey string) transcribe.Transcriber {
+			return transcriber
+		},
+	}
+
+	mockMR := &mockMapReduceRestructurer{
+		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+			return "restructured", false, nil
+		},
+	}
+	restructurerFactory := &mockRestructurerFactory{
+		mockMapReducer: mockMR,
+	}
+
+	// Only provide OpenAI key - should work with --provider openai
+	env := &Env{
+		Stderr: &syncBuffer{},
+		Getenv: func(key string) string {
+			if key == EnvOpenAIAPIKey {
+				return "test-openai-key"
+			}
+			return "" // No DeepSeek key
+		},
+		Now:                 fixedTime(fixedNow),
+		FFmpegResolver:      &mockFFmpegResolver{},
+		ConfigLoader:        configWithOutputDir(outputDir),
+		RecorderFactory:     recorderFactory,
+		ChunkerFactory:      chunkerFactory,
+		TranscriberFactory:  transcriberFactory,
+		RestructurerFactory: restructurerFactory,
+	}
+
+	opts := liveOptions{
+		provider: ProviderOpenAI,
+		duration: 30 * time.Minute,
+		template: "brainstorm", // Template triggers restructuring
+	}
+
+	// Use OpenAI provider - should NOT require DeepSeek key
+	err := RunLive(context.Background(), env, opts)
+	if err != nil {
+		t.Fatalf("expected no error with OpenAI provider, got %v", err)
+	}
+}
+
+func TestRunLive_ProviderPassedToFactory(t *testing.T) {
+	t.Parallel()
+
+	outputDir := t.TempDir()
+	fixedNow := time.Date(2026, 1, 25, 14, 30, 52, 0, time.UTC)
+
+	recorder := &mockRecorder{
+		RecordFunc: func(ctx context.Context, duration time.Duration, output string) error {
+			return os.WriteFile(output, []byte("audio data"), 0644)
+		},
+	}
+	recorderFactory := &mockRecorderFactory{
+		NewRecorderFunc: func(ffmpegPath, device string) (audio.Recorder, error) {
+			return recorder, nil
+		},
+	}
+
+	chunkPath := filepath.Join(t.TempDir(), "chunk_0.ogg")
+	if err := os.WriteFile(chunkPath, []byte("chunk"), 0644); err != nil {
+		t.Fatalf("failed to create chunk: %v", err)
+	}
+
+	chunker := &mockChunker{
+		ChunkFunc: func(ctx context.Context, audioPath string) ([]audio.Chunk, error) {
+			return []audio.Chunk{{Path: chunkPath, Index: 0}}, nil
+		},
+	}
+	chunkerFactory := &mockChunkerFactory{
+		NewSilenceChunkerFunc: func(ffmpegPath string) (audio.Chunker, error) {
+			return chunker, nil
+		},
+	}
+
+	transcriber := &mockTranscriber{
+		TranscribeFunc: func(ctx context.Context, audioPath string, opts transcribe.Options) (string, error) {
+			return "transcribed", nil
+		},
+	}
+	transcriberFactory := &mockTranscriberFactory{
+		NewTranscriberFunc: func(apiKey string) transcribe.Transcriber {
+			return transcriber
+		},
+	}
+
+	mockMR := &mockMapReduceRestructurer{
+		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+			return "restructured", false, nil
+		},
+	}
+	restructurerFactory := &mockRestructurerFactory{
+		mockMapReducer: mockMR,
+	}
+
+	env := &Env{
+		Stderr:              &syncBuffer{},
+		Getenv:              defaultTestEnv,
+		Now:                 fixedTime(fixedNow),
+		FFmpegResolver:      &mockFFmpegResolver{},
+		ConfigLoader:        configWithOutputDir(outputDir),
+		RecorderFactory:     recorderFactory,
+		ChunkerFactory:      chunkerFactory,
+		TranscriberFactory:  transcriberFactory,
+		RestructurerFactory: restructurerFactory,
+	}
+
+	opts := liveOptions{
+		provider: ProviderDeepSeek,
+		duration: 30 * time.Minute,
+		template: "brainstorm",
+	}
+
+	err := RunLive(context.Background(), env, opts)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify the correct provider was passed to the factory
+	calls := restructurerFactory.NewMapReducerCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 NewMapReducer call, got %d", len(calls))
+	}
+	if calls[0].Provider != ProviderDeepSeek {
+		t.Errorf("expected provider %q, got %q", ProviderDeepSeek, calls[0].Provider)
 	}
 }

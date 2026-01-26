@@ -138,31 +138,42 @@ func (m *mockTranscriber) TranscribeCalls() []transcribeCall {
 // ---------------------------------------------------------------------------
 
 type mockRestructurerFactory struct {
-	NewMapReducerFunc func(apiKey string, opts ...restructure.MapReduceOption) restructure.MapReducer
+	NewMapReducerFunc func(provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error)
+	NewMapReducerErr  error // Error to return from NewMapReducer
 
 	mu                 sync.Mutex
-	newMapReducerCalls []string
+	newMapReducerCalls []mapReducerCall
 	mockMapReducer     *mockMapReduceRestructurer
 }
 
-func (m *mockRestructurerFactory) NewMapReducer(apiKey string, opts ...restructure.MapReduceOption) restructure.MapReducer {
-	m.mu.Lock()
-	m.newMapReducerCalls = append(m.newMapReducerCalls, apiKey)
-	m.mu.Unlock()
-
-	if m.NewMapReducerFunc != nil {
-		return m.NewMapReducerFunc(apiKey, opts...)
-	}
-	if m.mockMapReducer != nil {
-		return m.mockMapReducer
-	}
-	return &mockMapReduceRestructurer{}
+type mapReducerCall struct {
+	Provider string
+	APIKey   string
 }
 
-func (m *mockRestructurerFactory) NewMapReducerCalls() []string {
+func (m *mockRestructurerFactory) NewMapReducer(provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error) {
+	m.mu.Lock()
+	m.newMapReducerCalls = append(m.newMapReducerCalls, mapReducerCall{Provider: provider, APIKey: apiKey})
+	m.mu.Unlock()
+
+	if m.NewMapReducerErr != nil {
+		return nil, m.NewMapReducerErr
+	}
+	if m.NewMapReducerFunc != nil {
+		return m.NewMapReducerFunc(provider, apiKey, opts...)
+	}
+	if m.mockMapReducer != nil {
+		return m.mockMapReducer, nil
+	}
+	return &mockMapReduceRestructurer{}, nil
+}
+
+func (m *mockRestructurerFactory) NewMapReducerCalls() []mapReducerCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]string(nil), m.newMapReducerCalls...)
+	result := make([]mapReducerCall, len(m.newMapReducerCalls))
+	copy(result, m.newMapReducerCalls)
+	return result
 }
 
 // ---------------------------------------------------------------------------

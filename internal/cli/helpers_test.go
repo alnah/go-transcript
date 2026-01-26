@@ -86,12 +86,7 @@ type testEnvOption func(*testEnvOptions)
 func testEnv(opts ...testEnvOption) (*Env, *testMocks) {
 	options := &testEnvOptions{
 		stderr: &syncBuffer{},
-		getenv: func(key string) string {
-			if key == "OPENAI_API_KEY" {
-				return "test-api-key"
-			}
-			return ""
-		},
+		getenv: defaultTestEnv,
 		now: func() time.Time {
 			return time.Date(2026, 1, 26, 14, 30, 52, 0, time.UTC)
 		},
@@ -130,6 +125,18 @@ func fixedTime(t time.Time) func() time.Time {
 func staticEnv(env map[string]string) func(string) string {
 	return func(key string) string {
 		return env[key]
+	}
+}
+
+// defaultTestEnv returns API keys for both OpenAI and DeepSeek.
+func defaultTestEnv(key string) string {
+	switch key {
+	case EnvOpenAIAPIKey:
+		return "test-openai-key"
+	case EnvDeepSeekAPIKey:
+		return "test-deepseek-key"
+	default:
+		return ""
 	}
 }
 

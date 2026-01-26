@@ -109,7 +109,7 @@ func TestRunTranscribe_FileNotFound(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, "/nonexistent/file.ogg", "", "", false, 5, "", "")
+	err := runTranscribe(cmd, env, "/nonexistent/file.ogg", "", "", false, 5, "", "", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
 	}
@@ -127,7 +127,7 @@ func TestRunTranscribe_UnsupportedFormat(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error for unsupported format")
 	}
@@ -144,7 +144,7 @@ func TestRunTranscribe_InvalidTemplate(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "nonexistent-template", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, "", "nonexistent-template", false, 5, "", "", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error for invalid template")
 	}
@@ -161,7 +161,7 @@ func TestRunTranscribe_InvalidLanguage(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "invalid-lang", "")
+	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "invalid-lang", "", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error for invalid language")
 	}
@@ -175,7 +175,7 @@ func TestRunTranscribe_OutputLangRequiresTemplate(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "en")
+	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "en", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error when output-lang without template")
 	}
@@ -199,7 +199,7 @@ func TestRunTranscribe_MissingAPIKey(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error for missing API key")
 	}
@@ -222,14 +222,14 @@ func TestRunTranscribe_FFmpegResolveFails(t *testing.T) {
 
 	env := &Env{
 		Stderr:         &syncBuffer{},
-		Getenv:         staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:         defaultTestEnv,
 		Now:            fixedTime(time.Now()),
 		FFmpegResolver: ffmpegResolver,
 		ConfigLoader:   &mockConfigLoader{},
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error when ffmpeg not found")
 	}
@@ -259,7 +259,7 @@ func TestRunTranscribe_ChunkerFails(t *testing.T) {
 
 	env := &Env{
 		Stderr:         &syncBuffer{},
-		Getenv:         staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:         defaultTestEnv,
 		Now:            fixedTime(time.Now()),
 		FFmpegResolver: &mockFFmpegResolver{},
 		ConfigLoader:   &mockConfigLoader{},
@@ -267,7 +267,7 @@ func TestRunTranscribe_ChunkerFails(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "", "", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error when chunker fails")
 	}
@@ -317,7 +317,7 @@ func TestRunTranscribe_Success(t *testing.T) {
 
 	env := &Env{
 		Stderr:             stderr,
-		Getenv:             staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:             defaultTestEnv,
 		Now:                fixedTime(time.Now()),
 		FFmpegResolver:     &mockFFmpegResolver{},
 		ConfigLoader:       &mockConfigLoader{},
@@ -326,7 +326,7 @@ func TestRunTranscribe_Success(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "", "", ProviderDeepSeek)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -396,7 +396,7 @@ func TestRunTranscribe_OutputExists(t *testing.T) {
 
 	env := &Env{
 		Stderr:             &syncBuffer{},
-		Getenv:             staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:             defaultTestEnv,
 		Now:                fixedTime(time.Now()),
 		FFmpegResolver:     &mockFFmpegResolver{},
 		ConfigLoader:       &mockConfigLoader{},
@@ -405,7 +405,7 @@ func TestRunTranscribe_OutputExists(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "", "", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error for existing output file")
 	}
@@ -453,7 +453,7 @@ func TestRunTranscribe_WithLanguage(t *testing.T) {
 
 	env := &Env{
 		Stderr:             &syncBuffer{},
-		Getenv:             staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:             defaultTestEnv,
 		Now:                fixedTime(time.Now()),
 		FFmpegResolver:     &mockFFmpegResolver{},
 		ConfigLoader:       &mockConfigLoader{},
@@ -462,7 +462,7 @@ func TestRunTranscribe_WithLanguage(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "fr", "")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "fr", "", ProviderDeepSeek)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -511,7 +511,7 @@ func TestRunTranscribe_WithDiarize(t *testing.T) {
 
 	env := &Env{
 		Stderr:             &syncBuffer{},
-		Getenv:             staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:             defaultTestEnv,
 		Now:                fixedTime(time.Now()),
 		FFmpegResolver:     &mockFFmpegResolver{},
 		ConfigLoader:       &mockConfigLoader{},
@@ -520,7 +520,7 @@ func TestRunTranscribe_WithDiarize(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", true, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "", true, 5, "", "", ProviderDeepSeek)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -576,7 +576,7 @@ func TestRunTranscribe_DefaultOutputPath(t *testing.T) {
 
 	env := &Env{
 		Stderr:             &syncBuffer{},
-		Getenv:             staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:             defaultTestEnv,
 		Now:                fixedTime(time.Now()),
 		FFmpegResolver:     &mockFFmpegResolver{},
 		ConfigLoader:       configLoader,
@@ -586,7 +586,7 @@ func TestRunTranscribe_DefaultOutputPath(t *testing.T) {
 	cmd := createTranscribeCmd(context.Background())
 
 	// Empty output path - should use default derived from input
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", ProviderDeepSeek)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -692,7 +692,7 @@ func TestRunTranscribe_WithTemplate(t *testing.T) {
 
 	env := &Env{
 		Stderr:              stderr,
-		Getenv:              staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:              defaultTestEnv,
 		Now:                 fixedTime(time.Now()),
 		FFmpegResolver:      &mockFFmpegResolver{},
 		ConfigLoader:        &mockConfigLoader{},
@@ -702,7 +702,7 @@ func TestRunTranscribe_WithTemplate(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -775,7 +775,7 @@ func TestRunTranscribe_WithTemplateAndLanguages(t *testing.T) {
 
 	env := &Env{
 		Stderr:              &syncBuffer{},
-		Getenv:              staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:              defaultTestEnv,
 		Now:                 fixedTime(time.Now()),
 		FFmpegResolver:      &mockFFmpegResolver{},
 		ConfigLoader:        &mockConfigLoader{},
@@ -786,7 +786,7 @@ func TestRunTranscribe_WithTemplateAndLanguages(t *testing.T) {
 	cmd := createTranscribeCmd(context.Background())
 
 	// Test: input language fr, output language en
-	err := runTranscribe(cmd, env, inputPath, outputPath, "meeting", false, 5, "fr", "en")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "meeting", false, 5, "fr", "en", ProviderDeepSeek)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -844,7 +844,7 @@ func TestRunTranscribe_WithTemplateInheritLanguage(t *testing.T) {
 
 	env := &Env{
 		Stderr:              &syncBuffer{},
-		Getenv:              staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:              defaultTestEnv,
 		Now:                 fixedTime(time.Now()),
 		FFmpegResolver:      &mockFFmpegResolver{},
 		ConfigLoader:        &mockConfigLoader{},
@@ -855,7 +855,7 @@ func TestRunTranscribe_WithTemplateInheritLanguage(t *testing.T) {
 	cmd := createTranscribeCmd(context.Background())
 
 	// Test: input language fr, no output language -> should inherit fr
-	err := runTranscribe(cmd, env, inputPath, outputPath, "meeting", false, 5, "fr", "")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "meeting", false, 5, "fr", "", ProviderDeepSeek)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -912,7 +912,7 @@ func TestRunTranscribe_RestructureError(t *testing.T) {
 
 	env := &Env{
 		Stderr:              &syncBuffer{},
-		Getenv:              staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:              defaultTestEnv,
 		Now:                 fixedTime(time.Now()),
 		FFmpegResolver:      &mockFFmpegResolver{},
 		ConfigLoader:        &mockConfigLoader{},
@@ -922,7 +922,7 @@ func TestRunTranscribe_RestructureError(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
 	if err == nil {
 		t.Fatal("expected error when restructuring fails")
 	}
@@ -979,7 +979,7 @@ func TestRunTranscribe_EmptyTranscriptSkipsRestructure(t *testing.T) {
 
 	env := &Env{
 		Stderr:              &syncBuffer{},
-		Getenv:              staticEnv(map[string]string{"OPENAI_API_KEY": "test-key"}),
+		Getenv:              defaultTestEnv,
 		Now:                 fixedTime(time.Now()),
 		FFmpegResolver:      &mockFFmpegResolver{},
 		ConfigLoader:        &mockConfigLoader{},
@@ -989,7 +989,7 @@ func TestRunTranscribe_EmptyTranscriptSkipsRestructure(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "")
+	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -1103,7 +1103,7 @@ func TestRunTranscribe_ValidationOrder(t *testing.T) {
 			inputPath, env := tt.setup(t)
 			cmd := createTranscribeCmd(context.Background())
 
-			err := runTranscribe(cmd, env, inputPath, tt.output, tt.template, false, 5, tt.language, tt.outputLang)
+			err := runTranscribe(cmd, env, inputPath, tt.output, tt.template, false, 5, tt.language, tt.outputLang, ProviderDeepSeek)
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -1115,5 +1115,196 @@ func TestRunTranscribe_ValidationOrder(t *testing.T) {
 				t.Errorf("expected error containing %q, got %v", tt.wantContain, err)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests for provider flag
+// ---------------------------------------------------------------------------
+
+func TestRunTranscribe_InvalidProvider(t *testing.T) {
+	t.Parallel()
+
+	inputPath := createTestAudioFile(t, "audio.ogg")
+
+	env, _ := testEnv()
+	cmd := createTranscribeCmd(context.Background())
+
+	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", "invalid-provider")
+	if err == nil {
+		t.Fatal("expected error for invalid provider")
+	}
+	if !errors.Is(err, ErrUnsupportedProvider) {
+		t.Errorf("expected ErrUnsupportedProvider, got %v", err)
+	}
+}
+
+func TestRunTranscribe_ProviderDeepSeek_MissingKey(t *testing.T) {
+	t.Parallel()
+
+	inputPath := createTestAudioFile(t, "audio.ogg")
+	outputDir := t.TempDir()
+	outputPath := filepath.Join(outputDir, "output.md")
+
+	// Only provide OpenAI key, not DeepSeek key
+	env := &Env{
+		Stderr: &syncBuffer{},
+		Getenv: func(key string) string {
+			if key == EnvOpenAIAPIKey {
+				return "test-openai-key"
+			}
+			return "" // No DeepSeek key
+		},
+		Now:            fixedTime(time.Now()),
+		FFmpegResolver: &mockFFmpegResolver{},
+		ConfigLoader:   &mockConfigLoader{},
+	}
+	cmd := createTranscribeCmd(context.Background())
+
+	// Use template to trigger restructuring (which requires DeepSeek key)
+	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
+	if err == nil {
+		t.Fatal("expected error for missing DeepSeek API key")
+	}
+	if !errors.Is(err, ErrDeepSeekKeyMissing) {
+		t.Errorf("expected ErrDeepSeekKeyMissing, got %v", err)
+	}
+}
+
+func TestRunTranscribe_ProviderOpenAI_ReusesKey(t *testing.T) {
+	t.Parallel()
+
+	inputPath := createTestAudioFile(t, "audio.ogg")
+	outputDir := t.TempDir()
+	outputPath := filepath.Join(outputDir, "output.md")
+
+	chunkPath := filepath.Join(t.TempDir(), "chunk_0.ogg")
+	if err := os.WriteFile(chunkPath, []byte("chunk"), 0644); err != nil {
+		t.Fatalf("failed to create chunk: %v", err)
+	}
+
+	chunker := &mockChunker{
+		ChunkFunc: func(ctx context.Context, audioPath string) ([]audio.Chunk, error) {
+			return []audio.Chunk{{Path: chunkPath, Index: 0}}, nil
+		},
+	}
+	chunkerFactory := &mockChunkerFactory{
+		NewSilenceChunkerFunc: func(ffmpegPath string) (audio.Chunker, error) {
+			return chunker, nil
+		},
+	}
+
+	transcriber := &mockTranscriber{
+		TranscribeFunc: func(ctx context.Context, audioPath string, opts transcribe.Options) (string, error) {
+			return "transcribed", nil
+		},
+	}
+	transcriberFactory := &mockTranscriberFactory{
+		NewTranscriberFunc: func(apiKey string) transcribe.Transcriber {
+			return transcriber
+		},
+	}
+
+	mockMR := &mockMapReduceRestructurer{
+		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+			return "restructured", false, nil
+		},
+	}
+	restructurerFactory := &mockRestructurerFactory{
+		mockMapReducer: mockMR,
+	}
+
+	// Only provide OpenAI key - should work with --provider openai
+	env := &Env{
+		Stderr: &syncBuffer{},
+		Getenv: func(key string) string {
+			if key == EnvOpenAIAPIKey {
+				return "test-openai-key"
+			}
+			return "" // No DeepSeek key
+		},
+		Now:                 fixedTime(time.Now()),
+		FFmpegResolver:      &mockFFmpegResolver{},
+		ConfigLoader:        &mockConfigLoader{},
+		ChunkerFactory:      chunkerFactory,
+		TranscriberFactory:  transcriberFactory,
+		RestructurerFactory: restructurerFactory,
+	}
+	cmd := createTranscribeCmd(context.Background())
+
+	// Use OpenAI provider - should NOT require DeepSeek key
+	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderOpenAI)
+	if err != nil {
+		t.Fatalf("expected no error with OpenAI provider, got %v", err)
+	}
+}
+
+func TestRunTranscribe_ProviderPassedToFactory(t *testing.T) {
+	t.Parallel()
+
+	inputPath := createTestAudioFile(t, "audio.ogg")
+	outputDir := t.TempDir()
+	outputPath := filepath.Join(outputDir, "output.md")
+
+	chunkPath := filepath.Join(t.TempDir(), "chunk_0.ogg")
+	if err := os.WriteFile(chunkPath, []byte("chunk"), 0644); err != nil {
+		t.Fatalf("failed to create chunk: %v", err)
+	}
+
+	chunker := &mockChunker{
+		ChunkFunc: func(ctx context.Context, audioPath string) ([]audio.Chunk, error) {
+			return []audio.Chunk{{Path: chunkPath, Index: 0}}, nil
+		},
+	}
+	chunkerFactory := &mockChunkerFactory{
+		NewSilenceChunkerFunc: func(ffmpegPath string) (audio.Chunker, error) {
+			return chunker, nil
+		},
+	}
+
+	transcriber := &mockTranscriber{
+		TranscribeFunc: func(ctx context.Context, audioPath string, opts transcribe.Options) (string, error) {
+			return "transcribed", nil
+		},
+	}
+	transcriberFactory := &mockTranscriberFactory{
+		NewTranscriberFunc: func(apiKey string) transcribe.Transcriber {
+			return transcriber
+		},
+	}
+
+	mockMR := &mockMapReduceRestructurer{
+		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+			return "restructured", false, nil
+		},
+	}
+	restructurerFactory := &mockRestructurerFactory{
+		mockMapReducer: mockMR,
+	}
+
+	env := &Env{
+		Stderr:              &syncBuffer{},
+		Getenv:              defaultTestEnv,
+		Now:                 fixedTime(time.Now()),
+		FFmpegResolver:      &mockFFmpegResolver{},
+		ConfigLoader:        &mockConfigLoader{},
+		ChunkerFactory:      chunkerFactory,
+		TranscriberFactory:  transcriberFactory,
+		RestructurerFactory: restructurerFactory,
+	}
+	cmd := createTranscribeCmd(context.Background())
+
+	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify the correct provider was passed to the factory
+	calls := restructurerFactory.NewMapReducerCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 NewMapReducer call, got %d", len(calls))
+	}
+	if calls[0].Provider != ProviderDeepSeek {
+		t.Errorf("expected provider %q, got %q", ProviderDeepSeek, calls[0].Provider)
 	}
 }
