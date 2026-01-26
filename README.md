@@ -153,7 +153,7 @@ transcript transcribe french.ogg -o notes.md -l fr --output-lang en -t meeting
 | `--template` | `-t` | | Restructure template: `brainstorm`, `meeting`, `lecture` |
 | `--language` | `-l` | auto-detect | Audio language (ISO 639-1: `en`, `fr`, `pt-BR`) |
 | `--output-lang` | | same as input | Output language for restructured text |
-| `--parallel` | `-p` | `3` | Max concurrent API requests (1-10) |
+| `--parallel` | `-p` | `10` | Max concurrent API requests (1-10) |
 | `--diarize` | | `false` | Enable speaker identification |
 
 `--output-lang` requires `--template`.

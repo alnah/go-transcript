@@ -83,7 +83,7 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (default: transcript_<timestamp>.md)")
 	cmd.Flags().StringVarP(&template, "template", "t", "", "Restructure template: brainstorm, meeting, lecture")
 	cmd.Flags().BoolVar(&diarize, "diarize", false, "Enable speaker identification")
-	cmd.Flags().IntVarP(&parallel, "parallel", "p", 3, "Max concurrent API requests (1-10)")
+	cmd.Flags().IntVarP(&parallel, "parallel", "p", 10, "Max concurrent API requests (1-10)")
 	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
 	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language for restructured text (requires --template)")
 
