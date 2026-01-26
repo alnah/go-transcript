@@ -71,6 +71,10 @@ const (
 	// Shorter chunks (5min) maximize parallelism and reduce OpenAI truncation risk.
 	defaultMaxChunkDuration = 5 * time.Minute
 
+	// defaultSilenceChunkerOverlap is the overlap for silence-based chunking.
+	// Each chunk starts slightly before its boundary to capture words at edges.
+	defaultSilenceChunkerOverlap = 2 * time.Second
+
 	// defaultOverlap is the overlap duration for time-based chunking.
 	// 30s ensures words at chunk boundaries are captured in at least one chunk.
 	defaultOverlap = 30 * time.Second
@@ -542,6 +546,7 @@ func (sc *SilenceChunker) selectCutPoints(silences []silencePoint, bytesPerSecon
 // extractChunks creates chunk files at the specified cut points.
 // If extraction fails partway through, already-created chunk files are cleaned up.
 // Segments exceeding defaultMaxChunkDuration are automatically subdivided.
+// Each chunk (except the first) starts with a small overlap to capture words at boundaries.
 func (sc *SilenceChunker) extractChunks(ctx context.Context, audioPath, tempDir string, cutPoints []time.Duration, totalDuration time.Duration) ([]Chunk, error) {
 	// Build segment boundaries: [0, cut1, cut2, ..., totalDuration].
 	boundaries := make([]time.Duration, 0, len(cutPoints)+2)
@@ -558,8 +563,15 @@ func (sc *SilenceChunker) extractChunks(ctx context.Context, audioPath, tempDir 
 		start := boundaries[i]
 		end := boundaries[i+1]
 
+		// Apply overlap: start each chunk (except first) slightly earlier.
+		// This ensures words at boundaries are captured in at least one chunk.
+		extractStart := start
+		if i > 0 && start >= defaultSilenceChunkerOverlap {
+			extractStart = start - defaultSilenceChunkerOverlap
+		}
+
 		chunkPath := filepath.Join(tempDir, fmt.Sprintf("chunk_%03d.ogg", i))
-		if err := sc.extractChunk(ctx, audioPath, chunkPath, start, end); err != nil {
+		if err := sc.extractChunk(ctx, audioPath, chunkPath, extractStart, end); err != nil {
 			// Cleanup chunks already created before returning error.
 			for _, c := range chunks {
 				_ = os.Remove(c.Path)
@@ -570,7 +582,7 @@ func (sc *SilenceChunker) extractChunks(ctx context.Context, audioPath, tempDir 
 		chunks = append(chunks, Chunk{
 			Path:      chunkPath,
 			Index:     i,
-			StartTime: start,
+			StartTime: start, // Logical start (for ordering), not extract start
 			EndTime:   end,
 		})
 	}
