@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -137,30 +139,6 @@ func withAudioSuccess(text string) *mockAudioTranscriber {
 	})
 }
 
-// withAudioDiarized creates a mock that returns a diarized response with segments.
-// segments is a slice of [id, text] pairs.
-func withAudioDiarized(segments [][2]any) *mockAudioTranscriber {
-	resp := openai.AudioResponse{}
-	for _, seg := range segments {
-		id, _ := seg[0].(int)
-		text, _ := seg[1].(string)
-		resp.Segments = append(resp.Segments, struct {
-			ID               int     `json:"id"`
-			Seek             int     `json:"seek"`
-			Start            float64 `json:"start"`
-			End              float64 `json:"end"`
-			Text             string  `json:"text"`
-			Tokens           []int   `json:"tokens"`
-			Temperature      float64 `json:"temperature"`
-			AvgLogprob       float64 `json:"avg_logprob"`
-			CompressionRatio float64 `json:"compression_ratio"`
-			NoSpeechProb     float64 `json:"no_speech_prob"`
-			Transient        bool    `json:"transient"`
-		}{ID: id, Text: text})
-	}
-	return newMockAudioTranscriber(mockAudioResponse{response: resp})
-}
-
 // withAudioError creates a mock that always returns the given error.
 func withAudioError(err error) *mockAudioTranscriber {
 	return newMockAudioTranscriber(mockAudioResponse{err: err})
@@ -169,6 +147,13 @@ func withAudioError(err error) *mockAudioTranscriber {
 // withAudioSequence creates a mock that returns different responses in sequence.
 func withAudioSequence(responses ...mockAudioResponse) *mockAudioTranscriber {
 	return newMockAudioTranscriber(responses...)
+}
+
+// withAudioTranscriber returns a TranscriberOption that injects a mock audioTranscriber.
+func withAudioTranscriber(mock audioTranscriber) TranscriberOption {
+	return func(t *OpenAITranscriber) {
+		t.client = mock
+	}
 }
 
 func (m *mockAudioTranscriber) CreateTranscription(_ context.Context, req openai.AudioRequest) (openai.AudioResponse, error) {
@@ -226,10 +211,6 @@ type mockFFmpegResponse struct {
 	output string
 	err    error
 }
-
-// ffmpegOutputFunc is the function signature for runFFmpegOutput.
-// Tests can replace runFFmpegOutputVar to inject mock behavior.
-type ffmpegOutputFunc func(ctx context.Context, ffmpegPath string, args []string) (string, error)
 
 // mockFFmpegRunner manages FFmpeg mock state for tests.
 type mockFFmpegRunner struct {
@@ -409,18 +390,6 @@ func tempFile(t *testing.T, content string) string {
 	return path
 }
 
-// tempFileWithName creates a temporary file with a specific name.
-func tempFileWithName(t *testing.T, name, content string) string {
-	t.Helper()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
-	}
-	return path
-}
-
 // tempAudioFile creates a minimal valid OGG file for testing.
 // This is not a real audio file but has the OGG magic bytes.
 func tempAudioFile(t *testing.T) string {
@@ -447,19 +416,6 @@ func tempAudioFile(t *testing.T) string {
 		t.Fatalf("failed to create temp audio file: %v", err)
 	}
 	return path
-}
-
-// tempConfigDir creates a temporary config directory structure.
-// Returns the path to the config file (which may or may not exist).
-func tempConfigDir(t *testing.T) string {
-	t.Helper()
-
-	dir := t.TempDir()
-	configDir := filepath.Join(dir, ".config", "go-transcript")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatalf("failed to create config directory: %v", err)
-	}
-	return filepath.Join(configDir, "config.json")
 }
 
 // =============================================================================
@@ -501,15 +457,6 @@ func assertContains(t *testing.T, haystack, needle string) {
 	}
 }
 
-// assertNotContains checks that haystack does not contain needle.
-func assertNotContains(t *testing.T, haystack, needle string) {
-	t.Helper()
-
-	if containsString(haystack, needle) {
-		t.Errorf("expected %q to not contain %q", truncate(haystack, 100), needle)
-	}
-}
-
 // assertEqual checks that got equals want.
 func assertEqual[T comparable](t *testing.T, got, want T) {
 	t.Helper()
@@ -544,6 +491,9 @@ func assertFileContains(t *testing.T, path, content string) {
 
 // assertOggFile checks that the file at path is a valid OGG file.
 // Validates: file exists, has OGG magic bytes, and size is within expected range.
+// Used by integration tests (recorder_integration_test.go).
+//
+//lint:ignore U1000 Used by integration tests with build tag
 func assertOggFile(t *testing.T, path string, minSize, maxSize int64) {
 	t.Helper()
 
@@ -574,25 +524,6 @@ func assertOggFile(t *testing.T, path string, minSize, maxSize int64) {
 	}
 }
 
-// assertFileSizeInRange checks that file size is within expected bounds.
-func assertFileSizeInRange(t *testing.T, path string, minSize, maxSize int64) {
-	t.Helper()
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Errorf("failed to stat file %s: %v", path, err)
-		return
-	}
-
-	size := info.Size()
-	if size < minSize {
-		t.Errorf("file %s too small: got %d bytes, want >= %d", path, size, minSize)
-	}
-	if maxSize > 0 && size > maxSize {
-		t.Errorf("file %s too large: got %d bytes, want <= %d", path, size, maxSize)
-	}
-}
-
 // =============================================================================
 // OpenAI Error Helpers
 // =============================================================================
@@ -617,17 +548,7 @@ func errorIs(err, target error) bool {
 
 // containsString checks if s contains substr.
 func containsString(s, substr string) bool {
-	return len(substr) == 0 || (len(s) >= len(substr) && searchString(s, substr))
-}
-
-// searchString does a simple substring search.
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, substr)
 }
 
 // truncate shortens a string for display in error messages.
@@ -663,46 +584,14 @@ remarquable mais les contraintes nous obligent à prioriser différemment les ob
 	// Calculate target chars (tokens * 3) and add 10% margin for rounding errors
 	targetChars := (tokens * 3 * 110) / 100
 
-	var builder stringsBuilder
+	var builder strings.Builder
 	segmentNum := 1
 	for builder.Len() < targetChars {
-		builder.WriteString(sprintf(segmentTemplate, segmentNum))
+		builder.WriteString(fmt.Sprintf(segmentTemplate, segmentNum))
 		segmentNum++
 	}
 
 	return builder.String()
-}
-
-// stringsBuilder is a minimal strings.Builder wrapper to avoid import in test file.
-type stringsBuilder struct {
-	buf []byte
-}
-
-func (b *stringsBuilder) WriteString(s string) {
-	b.buf = append(b.buf, s...)
-}
-
-func (b *stringsBuilder) String() string {
-	return string(b.buf)
-}
-
-func (b *stringsBuilder) Len() int {
-	return len(b.buf)
-}
-
-// sprintf formats a string with a single int argument (simplified for test use).
-func sprintf(format string, arg int) string {
-	// Find %d and replace with the number
-	result := make([]byte, 0, len(format)+10)
-	for i := 0; i < len(format); i++ {
-		if i < len(format)-1 && format[i] == '%' && format[i+1] == 'd' {
-			result = append(result, []byte(itoa(arg))...)
-			i++ // skip 'd'
-		} else {
-			result = append(result, format[i])
-		}
-	}
-	return string(result)
 }
 
 // =============================================================================
@@ -719,67 +608,27 @@ func loadFixture(t *testing.T, name string) string {
 	return string(data)
 }
 
-// silenceDetectOutput returns sample FFmpeg silencedetect output for testing.
-func silenceDetectOutput(silences [][2]float64, durationSec float64) string {
-	var output string
-	for _, s := range silences {
-		output += "[silencedetect @ 0x0] silence_start: " + formatFloat(s[0]) + "\n"
-		output += "[silencedetect @ 0x0] silence_end: " + formatFloat(s[1]) + " | silence_duration: " + formatFloat(s[1]-s[0]) + "\n"
-	}
-	// Add duration info
-	h := int(durationSec) / 3600
-	m := (int(durationSec) % 3600) / 60
-	sec := durationSec - float64(h*3600+m*60)
-	output += "Duration: " + formatTime(h, m, sec) + "\n"
-	return output
-}
-
-// formatFloat formats a float for FFmpeg output simulation.
-func formatFloat(f float64) string {
-	return string(formatFloatBytes(f))
-}
-
-func formatFloatBytes(f float64) []byte {
-	// Simple float formatting without importing strconv
-	intPart := int(f)
-	fracPart := int((f - float64(intPart)) * 1000)
-	if fracPart < 0 {
-		fracPart = -fracPart
-	}
-	return []byte(itoa(intPart) + "." + padZeros(itoa(fracPart), 3))
-}
-
-func formatTime(h, m int, s float64) string {
-	return padZeros(itoa(h), 2) + ":" + padZeros(itoa(m), 2) + ":" + formatFloat(s)
-}
-
+// itoa converts an int to string. Used in loopback_test.go fixture helpers.
 func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	neg := i < 0
-	if neg {
-		i = -i
-	}
-	var buf [20]byte
-	pos := len(buf)
-	for i > 0 {
-		pos--
-		buf[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
+	return fmt.Sprintf("%d", i)
 }
 
-func padZeros(s string, width int) string {
-	for len(s) < width {
-		s = "0" + s
+// =============================================================================
+// Restructurer Test Helpers
+// =============================================================================
+
+// withTemplateResolver sets a custom template resolver for testing.
+func withTemplateResolver(resolver templateResolver) RestructurerOption {
+	return func(r *OpenAIRestructurer) {
+		r.resolveTemplate = resolver
 	}
-	return s
+}
+
+// withChatCompleter sets a custom chat completer for testing.
+func withChatCompleter(cc chatCompleter) RestructurerOption {
+	return func(r *OpenAIRestructurer) {
+		r.client = cc
+	}
 }
 
 // =============================================================================

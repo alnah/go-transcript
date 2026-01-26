@@ -90,20 +90,6 @@ func WithRestructurerRetryDelays(base, max time.Duration) RestructurerOption {
 	}
 }
 
-// withTemplateResolver sets a custom template resolver (for testing).
-func withTemplateResolver(resolver templateResolver) RestructurerOption {
-	return func(r *OpenAIRestructurer) {
-		r.resolveTemplate = resolver
-	}
-}
-
-// withChatCompleter sets a custom chat completer (for testing).
-func withChatCompleter(cc chatCompleter) RestructurerOption {
-	return func(r *OpenAIRestructurer) {
-		r.client = cc
-	}
-}
-
 // NewOpenAIRestructurer creates a new OpenAIRestructurer with the given client.
 // Use options to customize model, token limits, and retry behavior.
 func NewOpenAIRestructurer(client *openai.Client, opts ...RestructurerOption) *OpenAIRestructurer {

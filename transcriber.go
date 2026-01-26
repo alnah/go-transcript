@@ -149,13 +149,6 @@ func WithRetryDelays(base, max time.Duration) TranscriberOption {
 	}
 }
 
-// withAudioTranscriber sets a custom audio transcriber (for testing).
-func withAudioTranscriber(at audioTranscriber) TranscriberOption {
-	return func(t *OpenAITranscriber) {
-		t.client = at
-	}
-}
-
 // NewOpenAITranscriber creates a new OpenAITranscriber.
 // The client is injected to enable testing with mocks.
 func NewOpenAITranscriber(client *openai.Client, opts ...TranscriberOption) *OpenAITranscriber {
@@ -325,7 +318,6 @@ func TranscribeAll(
 	g, ctx := errgroup.WithContext(ctx)
 
 	for i, chunk := range chunks {
-		i, chunk := i, chunk // Capture for goroutine.
 		g.Go(func() error {
 			// Acquire semaphore slot.
 			select {
@@ -350,5 +342,3 @@ func TranscribeAll(
 
 	return results, nil
 }
-
-// Note: Chunk type is defined in chunker.go
