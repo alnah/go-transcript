@@ -20,7 +20,7 @@ deps: ## Install dependencies
 	go mod download
 
 build: ## Build the binary
-	go build $(LDFLAGS) -o $(BINARY) .
+	go build $(LDFLAGS) -o $(BINARY) ./cmd/transcript
 
 version: ## Show version that would be injected
 	@echo "Version: $(VERSION)"
