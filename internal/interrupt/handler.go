@@ -3,6 +3,7 @@ package interrupt
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -20,11 +21,29 @@ const (
 	Abort
 )
 
+// String returns the string representation of the Behavior.
+func (b Behavior) String() string {
+	switch b {
+	case Continue:
+		return "Continue"
+	case Abort:
+		return "Abort"
+	default:
+		return fmt.Sprintf("Behavior(%d)", b)
+	}
+}
+
 // ExitInterrupt is the exit code for interrupt (130 = 128 + SIGINT).
 const ExitInterrupt = 130
 
 // interruptWindow is the time window for a second Ctrl+C to trigger abort.
 const interruptWindow = 2 * time.Second
+
+// pollInterval is how often WaitForDecision checks for abort status.
+const pollInterval = 100 * time.Millisecond
+
+// abortMessage is the message displayed when the user aborts via double Ctrl+C.
+const abortMessage = "\nAborted."
 
 // Handler manages graceful interrupt handling with double Ctrl+C detection.
 // First Ctrl+C triggers early stop with continuation.
@@ -41,7 +60,7 @@ type Handler struct {
 	// Injected dependencies (for testing)
 	exitFunc func(int)
 	nowFunc  func() time.Time
-	stderr   interface{ Write([]byte) (int, error) }
+	stderr   io.Writer
 }
 
 // Options holds injectable dependencies for testing.
@@ -49,7 +68,10 @@ type Options struct {
 	SigCh    <-chan os.Signal
 	ExitFunc func(int)
 	NowFunc  func() time.Time
-	Stderr   interface{ Write([]byte) (int, error) }
+	// Stderr is the writer for user-facing messages.
+	// Must be safe for concurrent writes from multiple goroutines.
+	// Defaults to os.Stderr which is safe at the OS level.
+	Stderr io.Writer
 }
 
 // NewHandler creates a handler that listens for SIGINT/SIGTERM.
@@ -133,7 +155,7 @@ func (h *Handler) listen(sigCh <-chan os.Signal) {
 				h.aborted = true
 				h.mu.Unlock()
 				// Exit immediately on double Ctrl+C
-				fmt.Fprintln(h.stderr, "\nAborted.")
+				fmt.Fprintln(h.stderr, abortMessage)
 				h.exitFunc(ExitInterrupt)
 				return // In case exitFunc doesn't actually exit (tests)
 			}
@@ -178,7 +200,7 @@ func (h *Handler) WaitForDecision(message string) Behavior {
 	fmt.Fprintln(h.stderr, message)
 
 	// Wait for remaining time or abort
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	deadline := time.NewTimer(remaining)
 	defer deadline.Stop()
