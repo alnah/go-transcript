@@ -151,9 +151,9 @@ func TestTemplates_AllHaveExpectedStructure(t *testing.T) {
 				t.Errorf("template %q suspiciously short: %d chars (min %d)", name, len(prompt), minPromptLength)
 			}
 
-			// All prompts should have a "Regles" section (French templates)
-			if !strings.Contains(prompt, "Regles") {
-				t.Errorf("template %q missing 'Regles' section", name)
+			// All prompts should have a "Rules" section (English templates)
+			if !strings.Contains(prompt, "Rules") {
+				t.Errorf("template %q missing 'Rules' section", name)
 			}
 
 			// All prompts should mention markdown output format

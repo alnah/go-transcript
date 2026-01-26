@@ -44,45 +44,50 @@ func TemplateNames() []string {
 	return result
 }
 
-// Prompt templates in French.
+// Prompt templates in English.
 // These instruct the LLM how to restructure raw transcripts.
+// For non-English output, a "Respond in {language}" instruction is prepended.
 
-const brainstormPrompt = `Tu restructures un transcript de session de brainstorming en markdown.
+const brainstormPrompt = `You restructure a brainstorming session transcript into markdown.
 
-Regles :
-- Titre H1 : sujet principal identifie
-- Sections H2 : un theme par section (regroupe les idees connexes)
-- Bullet points : une idee = un point
-- Section finale "Idees cles" : 3-5 insights les plus importants
-- Section finale "Actions" : uniquement si des actions concretes sont mentionnees
-- Corrige les erreurs de transcription evidentes
-- Supprime les filler words (euh, hum, en fait, du coup)
-- Ne modifie pas le sens, n'invente rien
-- Pas de table des matieres`
+Rules:
+- H1 title: main topic identified
+- H2 sections: one theme per section (group related ideas)
+- Bullet points: one idea = one point
+- Final section "Key Ideas": 3-5 most important insights
+- Final section "Actions": only if concrete actions are mentioned
+- Correct obvious transcription errors
+- Remove filler words (um, uh, like, you know, basically)
+- Do not summarize - include ALL ideas mentioned
+- Do not alter meaning, do not invent anything
+- No table of contents`
 
-const meetingPrompt = `Tu restructures un transcript de reunion en compte-rendu markdown.
+const meetingPrompt = `You restructure a meeting transcript into markdown meeting notes.
 
-Regles :
-- Titre H1 : objet de la reunion
-- Section "Participants" : uniquement si des noms sont mentionnes
-- Section "Points abordes" : H2 par sujet discute
-- Section "Decisions" : liste des decisions prises (si aucune, omettre la section)
-- Section "Actions" : format "- [ ] Action (Responsable, Deadline)" si mentionnes
-- Corrige les erreurs de transcription evidentes
-- Supprime les filler words
-- Ne modifie pas le sens, n'invente rien
-- Pas de table des matieres`
+Rules:
+- H1 title: meeting subject
+- "Participants" section: only if names are mentioned
+- "Topics Discussed" section: H2 per topic discussed
+- "Decisions" section: list of decisions made (if none, omit section)
+- "Actions" section: format "- [ ] Action (Owner, Deadline)" if mentioned
+- Correct obvious transcription errors
+- Remove filler words
+- Do not summarize - include ALL points discussed
+- Do not alter meaning, do not invent anything
+- No table of contents`
 
-const lecturePrompt = `Tu restructures un transcript de cours ou conference en notes markdown.
+const lecturePrompt = `You restructure a lecture or conference transcript into markdown notes.
 
-Regles :
-- Titre H1 : sujet du cours/conference
-- Sections H2 : concepts principaux
-- Sous-sections H3 : sous-concepts si necessaire
-- Bullet points pour les details
-- **Gras** pour les termes et definitions importants
-- Citations verbatim en blockquote uniquement si particulierement memorables
-- Corrige les erreurs de transcription evidentes
-- Supprime les filler words
-- Ne modifie pas le sens, n'invente rien
-- Pas de table des matieres`
+Rules:
+- H1 title: lecture/conference subject
+- H2 sections: main concepts
+- H3 subsections: sub-concepts if needed
+- Bullet points for details
+- **Bold** for important terms and definitions
+- Verbatim quotes in blockquote only if particularly memorable
+- Correct obvious transcription errors
+- Remove filler words
+- Do not summarize - preserve ALL concepts, examples, explanations, and details
+- Every piece of information from the transcript must appear in the output
+- Do not alter meaning, do not invent anything
+- No table of contents`
