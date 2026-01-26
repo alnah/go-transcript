@@ -116,14 +116,14 @@ func TestDurationHuman(t *testing.T) {
 // TestSize - Formats byte size for human display (MB, KB, bytes)
 // ---------------------------------------------------------------------------
 
+const (
+	kb = 1024
+	mb = 1024 * kb
+	gb = 1024 * mb
+)
+
 func TestSize(t *testing.T) {
 	t.Parallel()
-
-	const (
-		kb = 1024
-		mb = 1024 * kb
-		gb = 1024 * mb
-	)
 
 	tests := []struct {
 		name  string
@@ -160,4 +160,69 @@ func TestSize(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Fuzz Tests - Verify functions don't panic on arbitrary inputs
+// ---------------------------------------------------------------------------
+
+// FuzzDuration verifies Duration never panics and always returns non-empty.
+func FuzzDuration(f *testing.F) {
+	// Seed corpus with representative values
+	f.Add(int64(0))
+	f.Add(int64(time.Second))
+	f.Add(int64(time.Minute))
+	f.Add(int64(time.Hour))
+	f.Add(int64(24 * time.Hour))
+
+	f.Fuzz(func(t *testing.T, ns int64) {
+		d := time.Duration(ns)
+		if d < 0 {
+			t.Skip("negative durations are undefined behavior")
+		}
+		got := format.Duration(d)
+		if got == "" {
+			t.Errorf("Duration(%v) returned empty string", d)
+		}
+	})
+}
+
+// FuzzDurationHuman verifies DurationHuman never panics and always returns non-empty.
+func FuzzDurationHuman(f *testing.F) {
+	f.Add(int64(0))
+	f.Add(int64(time.Second))
+	f.Add(int64(time.Minute))
+	f.Add(int64(time.Hour))
+	f.Add(int64(24 * time.Hour))
+
+	f.Fuzz(func(t *testing.T, ns int64) {
+		d := time.Duration(ns)
+		if d < 0 {
+			t.Skip("negative durations are undefined behavior")
+		}
+		got := format.DurationHuman(d)
+		if got == "" {
+			t.Errorf("DurationHuman(%v) returned empty string", d)
+		}
+	})
+}
+
+// FuzzSize verifies Size never panics and always returns non-empty.
+func FuzzSize(f *testing.F) {
+	f.Add(int64(0))
+	f.Add(int64(1))
+	f.Add(int64(kb))
+	f.Add(int64(mb))
+	f.Add(int64(gb))
+	f.Add(int64(10 * gb))
+
+	f.Fuzz(func(t *testing.T, bytes int64) {
+		if bytes < 0 {
+			t.Skip("negative sizes are undefined behavior")
+		}
+		got := format.Size(bytes)
+		if got == "" {
+			t.Errorf("Size(%d) returned empty string", bytes)
+		}
+	})
 }
