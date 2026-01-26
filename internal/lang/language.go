@@ -63,6 +63,36 @@ var validLanguages = map[string]bool{
 	"zh": true, // Chinese
 }
 
+// displayNames maps language codes to human-readable names.
+// Used by DisplayName for user-facing output.
+var displayNames = map[string]string{
+	"en":    "English",
+	"en-us": "American English",
+	"en-gb": "British English",
+	"fr":    "French",
+	"fr-ca": "Canadian French",
+	"es":    "Spanish",
+	"es-mx": "Mexican Spanish",
+	"pt":    "Portuguese",
+	"pt-br": "Brazilian Portuguese",
+	"pt-pt": "European Portuguese",
+	"zh":    "Chinese",
+	"zh-cn": "Simplified Chinese",
+	"zh-tw": "Traditional Chinese",
+	"de":    "German",
+	"it":    "Italian",
+	"ja":    "Japanese",
+	"ko":    "Korean",
+	"ru":    "Russian",
+	"ar":    "Arabic",
+	"nl":    "Dutch",
+	"pl":    "Polish",
+	"sv":    "Swedish",
+	"da":    "Danish",
+	"no":    "Norwegian",
+	"fi":    "Finnish",
+}
+
 // Normalize normalizes a language code to lowercase with hyphen separator.
 // Accepts: "pt-BR", "pt_BR", "PT-BR", "pt-br" -> "pt-br"
 func Normalize(lang string) string {
@@ -77,14 +107,7 @@ func Validate(lang string) error {
 		return nil // Empty means auto-detect, which is valid
 	}
 
-	normalized := Normalize(lang)
-
-	// Extract base language from locale (pt-br -> pt)
-	base := normalized
-	if idx := strings.Index(normalized, "-"); idx != -1 {
-		base = normalized[:idx]
-	}
-
+	base := BaseCode(lang)
 	if !validLanguages[base] {
 		return fmt.Errorf("invalid language code %q (use ISO 639-1 codes like 'en', 'fr', 'pt-BR'): %w",
 			lang, ErrInvalid)
@@ -133,45 +156,12 @@ func IsEnglish(lang string) bool {
 func DisplayName(lang string) string {
 	normalized := Normalize(lang)
 
-	// Common locale display names
-	displayNames := map[string]string{
-		"en":    "English",
-		"en-us": "American English",
-		"en-gb": "British English",
-		"fr":    "French",
-		"fr-ca": "Canadian French",
-		"es":    "Spanish",
-		"es-mx": "Mexican Spanish",
-		"pt":    "Portuguese",
-		"pt-br": "Brazilian Portuguese",
-		"pt-pt": "European Portuguese",
-		"zh":    "Chinese",
-		"zh-cn": "Simplified Chinese",
-		"zh-tw": "Traditional Chinese",
-		"de":    "German",
-		"it":    "Italian",
-		"ja":    "Japanese",
-		"ko":    "Korean",
-		"ru":    "Russian",
-		"ar":    "Arabic",
-		"nl":    "Dutch",
-		"pl":    "Polish",
-		"sv":    "Swedish",
-		"da":    "Danish",
-		"no":    "Norwegian",
-		"fi":    "Finnish",
-	}
-
 	if name, ok := displayNames[normalized]; ok {
 		return name
 	}
 
-	// Extract base language for fallback
-	base := normalized
-	if idx := strings.Index(normalized, "-"); idx != -1 {
-		base = normalized[:idx]
-	}
-
+	// Fallback to base language name
+	base := BaseCode(lang)
 	if name, ok := displayNames[base]; ok {
 		return name
 	}
