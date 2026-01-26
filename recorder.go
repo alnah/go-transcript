@@ -129,37 +129,36 @@ func (r *FFmpegRecorder) recordMicrophone(ctx context.Context, duration time.Dur
 	format := inputFormat()
 	inputArg := formatInputArg(format, device)
 
-	args := []string{
-		"-y",         // Overwrite output without asking.
-		"-f", format, // Input format (avfoundation/alsa/dshow).
-		"-i", inputArg, // Input device.
-		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
-		"-c:a", "libvorbis", // OGG Vorbis codec.
-		"-ar", "16000", // 16kHz sample rate.
-		"-ac", "1", // Mono.
-		"-q:a", "2", // Quality ~50kbps.
-		output,
-	}
+	return r.recordFromInput(ctx, format, inputArg, duration, output)
+}
 
+// recordFromInput records from a specified input source.
+// This is the core recording function used by all capture modes.
+// inputFormat is the FFmpeg input format (e.g., "avfoundation", "lavfi").
+// inputArg is the FFmpeg -i argument (e.g., ":0", "anullsrc=r=16000:cl=mono").
+func (r *FFmpegRecorder) recordFromInput(ctx context.Context, inputFormat, inputArg string, duration time.Duration, output string) error {
+	args := buildRecordArgs(inputFormat, inputArg, duration, output)
 	return runFFmpegGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
+}
+
+// buildRecordArgs constructs FFmpeg arguments for recording.
+// Uses encodingArgs() for consistent output encoding across all record methods.
+func buildRecordArgs(inputFormat, inputArg string, duration time.Duration, output string) []string {
+	args := []string{
+		"-y",              // Overwrite output without asking.
+		"-f", inputFormat, // Input format.
+		"-i", inputArg,    // Input source.
+		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
+	}
+	args = append(args, encodingArgs()...)
+	args = append(args, output)
+	return args
 }
 
 // recordLoopback records from the loopback device (system audio).
 func (r *FFmpegRecorder) recordLoopback(ctx context.Context, duration time.Duration, output string) error {
 	// Loopback device was detected and cached in NewFFmpegLoopbackRecorder.
-	args := []string{
-		"-y",                    // Overwrite output without asking.
-		"-f", r.loopback.format, // Input format (avfoundation/pulse/dshow).
-		"-i", r.loopback.name, // Loopback device.
-		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
-		"-c:a", "libvorbis", // OGG Vorbis codec.
-		"-ar", "16000", // 16kHz sample rate.
-		"-ac", "1", // Mono.
-		"-q:a", "2", // Quality ~50kbps.
-		output,
-	}
-
-	return runFFmpegGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
+	return r.recordFromInput(ctx, r.loopback.format, r.loopback.name, duration, output)
 }
 
 // recordMix records both microphone and loopback mixed together.
@@ -178,7 +177,8 @@ func (r *FFmpegRecorder) recordMix(ctx context.Context, duration time.Duration, 
 	micFormat := inputFormat()
 	micInputArg := formatInputArg(micFormat, micDevice)
 
-	// Build FFmpeg command with two inputs and amix filter
+	// Build FFmpeg command with two inputs and amix filter.
+	// Uses same encoding settings as buildRecordArgs for consistency.
 	args := []string{
 		"-y", // Overwrite output without asking.
 		// Input 1: Microphone
@@ -190,14 +190,22 @@ func (r *FFmpegRecorder) recordMix(ctx context.Context, duration time.Duration, 
 		// Mix both inputs
 		"-filter_complex", "amix=inputs=2:duration=first:dropout_transition=2",
 		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
-		"-c:a", "libvorbis", // OGG Vorbis codec.
-		"-ar", "16000", // 16kHz sample rate.
-		"-ac", "1", // Mono.
-		"-q:a", "2", // Quality ~50kbps.
-		output,
 	}
+	args = append(args, encodingArgs()...)
+	args = append(args, output)
 
 	return runFFmpegGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
+}
+
+// encodingArgs returns the standard encoding arguments for OGG Vorbis output.
+// This is the single source of truth for output encoding parameters.
+func encodingArgs() []string {
+	return []string{
+		"-c:a", "libvorbis", // OGG Vorbis codec.
+		"-ar", "16000",      // 16kHz sample rate.
+		"-ac", "1",          // Mono.
+		"-q:a", "2",         // Quality ~50kbps.
+	}
 }
 
 // ListDevices returns a list of available audio input devices.
