@@ -34,6 +34,9 @@ type chatCompleter interface {
 // Default implementation uses template.Get from internal/template.
 type templateResolver func(name string) (string, error)
 
+// Compile-time interface compliance check.
+var _ Restructurer = (*OpenAIRestructurer)(nil)
+
 // OpenAIRestructurer restructures transcripts using OpenAI's chat completion API.
 // It supports automatic retries with exponential backoff for transient errors.
 type OpenAIRestructurer struct {
@@ -51,11 +54,16 @@ type Option func(*OpenAIRestructurer)
 
 // Default configuration values.
 const (
-	defaultRestructureModel      = "o4-mini"
-	defaultMaxInputTokens        = 100000
-	defaultMaxOutputTokens       = 100000 // o4-mini max output tokens
-	defaultCharsPerToken         = 3      // Conservative for French text
-	defaultRestructureMaxRetries = 3      // Fewer retries than transcriber (longer latency)
+	// Model configuration
+	defaultRestructureModel = "o4-mini"
+	defaultMaxInputTokens   = 100000
+	defaultMaxOutputTokens  = 100000 // o4-mini max output tokens
+
+	// Token estimation: conservative for French text (~3.5 chars/token, we use 3)
+	defaultCharsPerToken = 3
+
+	// Retry configuration: fewer retries than transcriber (longer latency)
+	defaultRestructureMaxRetries = 3
 	defaultRestructureBaseDelay  = 1 * time.Second
 	defaultRestructureMaxDelay   = 30 * time.Second
 )
@@ -175,6 +183,11 @@ func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templa
 
 	// 5. Call API with retry
 	return r.restructureWithRetry(ctx, req)
+}
+
+// getTemplateResolver returns the template resolver (used by MapReduceRestructurer).
+func (r *OpenAIRestructurer) getTemplateResolver() templateResolver {
+	return r.resolveTemplate
 }
 
 // RestructureWithCustomPrompt executes restructuring with a custom prompt (used by MapReduce).

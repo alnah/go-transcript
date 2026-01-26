@@ -117,9 +117,20 @@ func buildMapPrompt(basePrompt string, chunk TranscriptChunk) string {
 	return fmt.Sprintf(mapChunkPromptPrefix, chunk.Index+1, chunk.Total, basePrompt)
 }
 
+// customPromptRestructurer is an internal interface for restructurers that support
+// custom prompts (required for MapReduce map/reduce phases).
+// Both OpenAIRestructurer and DeepSeekRestructurer implement this.
+type customPromptRestructurer interface {
+	Restructurer
+	RestructureWithCustomPrompt(ctx context.Context, content, prompt string) (string, error)
+	getTemplateResolver() templateResolver
+}
+
 // MapReduceRestructurer handles long transcripts by splitting, processing, and merging.
+// It works with any restructurer that implements customPromptRestructurer
+// (both OpenAIRestructurer and DeepSeekRestructurer).
 type MapReduceRestructurer struct {
-	restructurer *OpenAIRestructurer
+	restructurer customPromptRestructurer
 	maxTokens    int
 	onProgress   func(phase string, current, total int) // Optional progress callback
 }
@@ -144,7 +155,8 @@ func WithMapReduceProgress(fn func(phase string, current, total int)) MapReduceO
 }
 
 // NewMapReduceRestructurer creates a MapReduceRestructurer wrapping an existing restructurer.
-func NewMapReduceRestructurer(r *OpenAIRestructurer, opts ...MapReduceOption) *MapReduceRestructurer {
+// The restructurer must implement customPromptRestructurer (OpenAIRestructurer or DeepSeekRestructurer).
+func NewMapReduceRestructurer(r customPromptRestructurer, opts ...MapReduceOption) *MapReduceRestructurer {
 	mr := &MapReduceRestructurer{
 		restructurer: r,
 		maxTokens:    maxChunkTokens,
@@ -173,7 +185,8 @@ func (mr *MapReduceRestructurer) Restructure(ctx context.Context, transcript, te
 // mapReduce executes the map and reduce phases.
 func (mr *MapReduceRestructurer) mapReduce(ctx context.Context, chunks []TranscriptChunk, templateName, outputLang string) (string, bool, error) {
 	// Get base template
-	basePrompt, err := mr.restructurer.resolveTemplate(templateName)
+	resolver := mr.restructurer.getTemplateResolver()
+	basePrompt, err := resolver(templateName)
 	if err != nil {
 		return "", true, err
 	}
