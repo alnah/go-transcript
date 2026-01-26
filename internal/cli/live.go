@@ -333,8 +333,7 @@ func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts
 		effectiveOutputLang = opts.language
 	}
 
-	restructurer := env.RestructurerFactory.NewRestructurer(lctx.apiKey)
-	mrRestructurer := env.RestructurerFactory.NewMapReduceRestructurer(restructurer,
+	mrRestructurer := env.RestructurerFactory.NewMapReducer(lctx.apiKey,
 		restructure.WithMapReduceProgress(func(phase string, current, total int) {
 			if phase == "map" {
 				fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)

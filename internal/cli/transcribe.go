@@ -226,8 +226,7 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 			effectiveOutputLang = language
 		}
 
-		restructurer := env.RestructurerFactory.NewRestructurer(apiKey)
-		mrRestructurer := env.RestructurerFactory.NewMapReduceRestructurer(restructurer,
+		mrRestructurer := env.RestructurerFactory.NewMapReducer(apiKey,
 			restructure.WithMapReduceProgress(func(phase string, current, total int) {
 				if phase == "map" {
 					fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)

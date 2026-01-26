@@ -126,6 +126,17 @@ type customPromptRestructurer interface {
 	getTemplateResolver() templateResolver
 }
 
+// MapReducer processes transcripts with automatic chunking for long content.
+// Implementations split long transcripts, process chunks, and merge results.
+type MapReducer interface {
+	// Restructure processes a transcript, using MapReduce if it exceeds the token limit.
+	// Returns the restructured output, whether MapReduce was used, and any error.
+	Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error)
+}
+
+// Compile-time interface compliance check.
+var _ MapReducer = (*MapReduceRestructurer)(nil)
+
 // MapReduceRestructurer handles long transcripts by splitting, processing, and merging.
 // It works with any restructurer that implements customPromptRestructurer
 // (both OpenAIRestructurer and DeepSeekRestructurer).

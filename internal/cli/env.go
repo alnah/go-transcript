@@ -56,8 +56,9 @@ type TranscriberFactory interface {
 
 // RestructurerFactory creates restructurers for transcript formatting.
 type RestructurerFactory interface {
-	NewRestructurer(apiKey string) *restructure.OpenAIRestructurer
-	NewMapReduceRestructurer(base *restructure.OpenAIRestructurer, opts ...restructure.MapReduceOption) *restructure.MapReduceRestructurer
+	// NewMapReducer creates a MapReducer configured with the given API key and options.
+	// This is the primary method for creating restructurers in CLI commands.
+	NewMapReducer(apiKey string, opts ...restructure.MapReduceOption) restructure.MapReducer
 }
 
 // ChunkerFactory creates audio chunkers.
@@ -195,12 +196,9 @@ func (defaultTranscriberFactory) NewTranscriber(apiKey string) transcribe.Transc
 // defaultRestructurerFactory implements RestructurerFactory using OpenAI.
 type defaultRestructurerFactory struct{}
 
-func (defaultRestructurerFactory) NewRestructurer(apiKey string) *restructure.OpenAIRestructurer {
+func (defaultRestructurerFactory) NewMapReducer(apiKey string, opts ...restructure.MapReduceOption) restructure.MapReducer {
 	client := openai.NewClient(apiKey)
-	return restructure.NewOpenAIRestructurer(client)
-}
-
-func (defaultRestructurerFactory) NewMapReduceRestructurer(base *restructure.OpenAIRestructurer, opts ...restructure.MapReduceOption) *restructure.MapReduceRestructurer {
+	base := restructure.NewOpenAIRestructurer(client)
 	return restructure.NewMapReduceRestructurer(base, opts...)
 }
 
