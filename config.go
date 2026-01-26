@@ -259,12 +259,15 @@ func ValidOutputDir(dir string) error {
 
 	// Check if writable by attempting to create a temp file.
 	testFile := filepath.Join(dir, ".go-transcript-write-test")
-	f, err := os.Create(testFile)
+	f, err := os.Create(testFile) // #nosec G304 -- path is constructed from validated dir
 	if err != nil {
 		return fmt.Errorf("directory is not writable: %w", err)
 	}
-	f.Close()
-	os.Remove(testFile)
+	if err := f.Close(); err != nil {
+		_ = os.Remove(testFile)
+		return fmt.Errorf("directory is not writable: %w", err)
+	}
+	_ = os.Remove(testFile) // Best effort cleanup, ignore error
 
 	return nil
 }
