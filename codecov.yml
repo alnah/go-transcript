@@ -7,15 +7,29 @@ coverage:
   status:
     project:
       default:
-        # Start at current baseline (24.6%), increase gradually
         target: 20%
         threshold: 2%
         if_ci_failed: error
     patch:
       default:
-        # New code should be reasonably tested
         target: 50%
         threshold: 5%
+
+# Flags for different test tiers - Codecov merges coverage from all flags
+flags:
+  unit:
+    paths:
+      - "!**/*_test.go"
+    carryforward: true
+  integration:
+    paths:
+      - "!**/*_test.go"
+    carryforward: true
+  e2e:
+    paths:
+      - "!**/*_test.go"
+    # Critical: carry forward when e2e doesn't run on PRs
+    carryforward: true
 
 comment:
   layout: "reach,diff,flags,files"
