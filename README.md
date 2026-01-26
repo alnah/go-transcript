@@ -24,7 +24,7 @@
 ## Installation
 
 ```bash
-go install github.com/alnah/go-transcript@latest
+go install github.com/alnah/go-transcript/cmd/transcript@latest
 ```
 
 <details>
