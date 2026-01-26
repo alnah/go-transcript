@@ -218,16 +218,29 @@ func parseTimeComponents(hours, minutes, seconds, centiseconds string) (time.Dur
 		time.Duration(ms)*time.Millisecond, nil
 }
 
+// chunkEncodingArgs returns FFmpeg encoding arguments for chunk extraction.
+// Re-encodes to OGG Vorbis to ensure valid output even from corrupted/truncated sources.
+// Uses same parameters as recording (16kHz mono, ~50kbps) optimal for speech transcription.
+func chunkEncodingArgs() []string {
+	return []string{
+		"-c:a", "libvorbis",
+		"-ar", "16000",
+		"-ac", "1",
+		"-q:a", "2",
+	}
+}
+
 // extractChunk extracts a segment from audioPath to chunkPath.
+// Re-encodes to OGG Vorbis to ensure valid output even from corrupted/truncated sources.
 func (tc *TimeChunker) extractChunk(ctx context.Context, audioPath, chunkPath string, start, end time.Duration) error {
 	args := []string{
 		"-y",
 		"-i", audioPath,
 		"-ss", formatFFmpegTime(start),
 		"-to", formatFFmpegTime(end),
-		"-c", "copy", // No re-encoding.
-		chunkPath,
 	}
+	args = append(args, chunkEncodingArgs()...)
+	args = append(args, chunkPath)
 
 	// #nosec G204 -- ffmpegPath is resolved internally via resolveFFmpeg, not user input
 	cmd := exec.CommandContext(ctx, tc.ffmpegPath, args...)
@@ -522,15 +535,16 @@ func (sc *SilenceChunker) extractChunks(ctx context.Context, audioPath, tempDir 
 }
 
 // extractChunk extracts a segment from audioPath to chunkPath.
+// Re-encodes to OGG Vorbis to ensure valid output even from corrupted/truncated sources.
 func (sc *SilenceChunker) extractChunk(ctx context.Context, audioPath, chunkPath string, start, end time.Duration) error {
 	args := []string{
 		"-y",
 		"-i", audioPath,
 		"-ss", formatFFmpegTime(start),
 		"-to", formatFFmpegTime(end),
-		"-c", "copy", // No re-encoding.
-		chunkPath,
 	}
+	args = append(args, chunkEncodingArgs()...)
+	args = append(args, chunkPath)
 
 	// #nosec G204 -- ffmpegPath is resolved internally via resolveFFmpeg, not user input
 	cmd := exec.CommandContext(ctx, sc.ffmpegPath, args...)
