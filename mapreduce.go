@@ -96,17 +96,18 @@ If this is not part 1, continue the structure from where the previous part left 
 Do not add a main title (H1) unless this is part 1.`
 
 	// reducePrompt is used to merge chunk outputs into a coherent whole.
-	reducePrompt = `Tu recois plusieurs parties d'un document markdown restructure.
-Fusionne-les en un seul document coherent.
+	reducePrompt = `You receive multiple parts of a restructured markdown document.
+Merge them into a single coherent document.
 
-Regles :
-- Garde un seul titre H1 (celui de la premiere partie)
-- Fusionne les sections H2 qui traitent du meme sujet
-- Elimine les doublons et redondances
-- Preserve toutes les idees uniques
-- Maintiens une structure logique et coherente
-- Garde les sections "Idees cles", "Decisions", "Actions" a la fin (fusionnees si presentes dans plusieurs parties)
-- Ne modifie pas le sens, n'invente rien`
+Rules:
+- Keep only one H1 title (from the first part)
+- Merge H2 sections that cover the same topic
+- Eliminate exact duplicates only (same sentence repeated)
+- Preserve ALL unique content, even if topics are similar
+- Do not summarize or condense - every detail must be kept
+- Maintain a logical and coherent structure
+- Keep "Key Ideas", "Decisions", "Actions" sections at the end (merged if present in multiple parts)
+- Do not alter meaning, do not invent anything`
 )
 
 // buildMapPrompt creates the prompt for processing a single chunk.
@@ -175,8 +176,8 @@ func (mr *MapReduceRestructurer) mapReduce(ctx context.Context, chunks []Transcr
 		return "", true, err
 	}
 
-	// Add language instruction if needed
-	if outputLang != "" && !IsFrench(outputLang) {
+	// Add language instruction if needed (skip for English, template's native language)
+	if outputLang != "" && !IsEnglish(outputLang) {
 		langName := LanguageDisplayName(outputLang)
 		basePrompt = fmt.Sprintf("Respond in %s.\n\n%s", langName, basePrompt)
 	}
@@ -224,9 +225,9 @@ func (mr *MapReduceRestructurer) reduce(ctx context.Context, outputs []string, o
 		fmt.Fprintf(&input, "=== PART %d ===\n\n%s", i+1, output)
 	}
 
-	// Build reduce prompt with language instruction
+	// Build reduce prompt with language instruction (skip for English, template's native language)
 	prompt := reducePrompt
-	if outputLang != "" && !IsFrench(outputLang) {
+	if outputLang != "" && !IsEnglish(outputLang) {
 		langName := LanguageDisplayName(outputLang)
 		prompt = fmt.Sprintf("Respond in %s.\n\n%s", langName, prompt)
 	}

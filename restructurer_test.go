@@ -123,8 +123,8 @@ func TestRestructure_RequestFormat(t *testing.T) {
 	if systemMsg.Role != openai.ChatMessageRoleSystem {
 		t.Errorf("expected first message role 'system', got %q", systemMsg.Role)
 	}
-	// Meeting template should contain "reunion"
-	if !strings.Contains(systemMsg.Content, "reunion") {
+	// Meeting template should contain "meeting"
+	if !strings.Contains(systemMsg.Content, "meeting") {
 		t.Errorf("system message should contain meeting template, got %q", systemMsg.Content[:min(100, len(systemMsg.Content))])
 	}
 
@@ -154,24 +154,24 @@ func TestRestructure_EmptyTranscript(t *testing.T) {
 // Language Handling
 // =============================================================================
 
-// TestRestructure_OutputLang_French verifies that French output languages
-// do NOT add a "Respond in" instruction (template is natively French).
-func TestRestructure_OutputLang_French(t *testing.T) {
+// TestRestructure_OutputLang_English verifies that English output languages
+// do NOT add a "Respond in" instruction (template is natively English).
+func TestRestructure_OutputLang_English(t *testing.T) {
 	cases := []struct {
 		name       string
 		outputLang string
 	}{
 		{"empty", ""},
-		{"fr", "fr"},
-		{"fr_lowercase", "fr"},
-		{"fr-FR", "fr-FR"},
-		{"fr-CA", "fr-CA"},
-		{"FR_uppercase", "FR"},
+		{"en", "en"},
+		{"en_lowercase", "en"},
+		{"en-US", "en-US"},
+		{"en-GB", "en-GB"},
+		{"EN_uppercase", "EN"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mock := withChatSuccess("résultat")
+			mock := withChatSuccess("result")
 			r := NewOpenAIRestructurer(nil, withChatCompleter(mock))
 
 			_, err := r.Restructure(context.Background(), "transcript", TemplateBrainstorm, tc.outputLang)
@@ -180,25 +180,25 @@ func TestRestructure_OutputLang_French(t *testing.T) {
 			req := mock.LastRequest()
 			systemPrompt := req.Messages[0].Content
 
-			// Should NOT contain "Respond in" for French
+			// Should NOT contain "Respond in" for English
 			if strings.Contains(systemPrompt, "Respond in") {
-				t.Errorf("French output should not add language instruction, got: %s", systemPrompt[:min(50, len(systemPrompt))])
+				t.Errorf("English output should not add language instruction, got: %s", systemPrompt[:min(50, len(systemPrompt))])
 			}
 		})
 	}
 }
 
-// TestRestructure_OutputLang_NonFrench verifies that non-French output languages
+// TestRestructure_OutputLang_NonEnglish verifies that non-English output languages
 // add a "Respond in {Language}." instruction at the beginning of the prompt.
 // Display names come from LanguageDisplayName() in language.go.
-func TestRestructure_OutputLang_NonFrench(t *testing.T) {
+func TestRestructure_OutputLang_NonEnglish(t *testing.T) {
 	cases := []struct {
 		name             string
 		outputLang       string
 		expectedContains string
 	}{
-		{"english", "en", "Respond in English"},
-		{"english_US", "en-US", "Respond in American English"},
+		{"french", "fr", "Respond in French"},
+		{"french_CA", "fr-CA", "Respond in Canadian French"},
 		{"portuguese_BR", "pt-BR", "Respond in Brazilian Portuguese"},
 		{"spanish", "es", "Respond in Spanish"},
 		{"german", "de", "Respond in German"},
@@ -227,9 +227,9 @@ func TestRestructure_OutputLang_NonFrench(t *testing.T) {
 				t.Errorf("language instruction should be at the start, got: %s", systemPrompt[:min(50, len(systemPrompt))])
 			}
 
-			// Original template should follow
-			if !strings.Contains(systemPrompt, "Regles") {
-				t.Error("original French template should be preserved after language instruction")
+			// Original English template should follow
+			if !strings.Contains(systemPrompt, "Rules") {
+				t.Error("original English template should be preserved after language instruction")
 			}
 		})
 	}

@@ -14,8 +14,8 @@ import (
 // Restructurer transforms raw transcripts into structured markdown using templates.
 type Restructurer interface {
 	// Restructure transforms a transcript using the specified template.
-	// outputLang specifies the output language (e.g., "en", "pt-BR").
-	// Empty outputLang uses the template's native language (French).
+	// outputLang specifies the output language (e.g., "fr", "pt-BR").
+	// Empty outputLang uses the template's native language (English).
 	Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, error)
 }
 
@@ -123,7 +123,7 @@ func NewOpenAIRestructurer(client *openai.Client, opts ...RestructurerOption) *O
 }
 
 // Restructure transforms a raw transcript into structured markdown using the specified template.
-// outputLang specifies the output language (e.g., "en", "pt-BR"). Empty uses template's native language (French).
+// outputLang specifies the output language (e.g., "fr", "pt-BR"). Empty uses template's native language (English).
 // Returns ErrUnknownTemplate if the template name is invalid.
 // Returns ErrTranscriptTooLong if the transcript exceeds the token limit (estimated).
 // Automatically retries on transient errors (rate limits, timeouts, server errors).
@@ -137,8 +137,9 @@ func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templa
 		return "", err
 	}
 
-	// 2. Add language instruction if output is not French (template's native language)
-	if outputLang != "" && !IsFrench(outputLang) {
+	// 2. Add language instruction if output is not English (template's native language)
+	// English output (en, en-US, en-GB, etc.) skips this instruction since templates are native English.
+	if outputLang != "" && !IsEnglish(outputLang) {
 		langName := LanguageDisplayName(outputLang)
 		prompt = fmt.Sprintf("Respond in %s.\n\n%s", langName, prompt)
 	}

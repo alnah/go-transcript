@@ -523,28 +523,7 @@ func TestMapReduceRestructurer_ReduceError_ReturnsWrappedError(t *testing.T) {
 // Language Handling Tests (SWOT: Mitigate - 3 tests max)
 // =============================================================================
 
-func TestMapReduceRestructurer_OutputLangFrench_NoLanguagePrefix(t *testing.T) {
-	t.Parallel()
-
-	mock := withChatSuccess("output")
-	mr := newTestMapReduceRestructurer(t, mock, 50)
-
-	ctx := testContext(t)
-	transcript := generateParagraphs(2, 40)
-
-	_, _, err := mr.Restructure(ctx, transcript, "meeting", "fr")
-	assertNoError(t, err)
-
-	requests := mock.AllRequests()
-	for i, req := range requests {
-		prompt := req.Messages[0].Content
-		if strings.Contains(prompt, "Respond in") {
-			t.Errorf("request %d should not contain language prefix for French", i)
-		}
-	}
-}
-
-func TestMapReduceRestructurer_OutputLangEnglish_AddsLanguagePrefix(t *testing.T) {
+func TestMapReduceRestructurer_OutputLangEnglish_NoLanguagePrefix(t *testing.T) {
 	t.Parallel()
 
 	mock := withChatSuccess("output")
@@ -557,11 +536,32 @@ func TestMapReduceRestructurer_OutputLangEnglish_AddsLanguagePrefix(t *testing.T
 	assertNoError(t, err)
 
 	requests := mock.AllRequests()
+	for i, req := range requests {
+		prompt := req.Messages[0].Content
+		if strings.Contains(prompt, "Respond in") {
+			t.Errorf("request %d should not contain language prefix for English", i)
+		}
+	}
+}
+
+func TestMapReduceRestructurer_OutputLangFrench_AddsLanguagePrefix(t *testing.T) {
+	t.Parallel()
+
+	mock := withChatSuccess("output")
+	mr := newTestMapReduceRestructurer(t, mock, 50)
+
+	ctx := testContext(t)
+	transcript := generateParagraphs(2, 40)
+
+	_, _, err := mr.Restructure(ctx, transcript, "meeting", "fr")
+	assertNoError(t, err)
+
+	requests := mock.AllRequests()
 	// All prompts (map and reduce) should have language instruction
 	for i, req := range requests {
 		prompt := req.Messages[0].Content
-		if !strings.Contains(prompt, "Respond in English") {
-			t.Errorf("request %d missing 'Respond in English' prefix", i)
+		if !strings.Contains(prompt, "Respond in French") {
+			t.Errorf("request %d missing 'Respond in French' prefix", i)
 		}
 	}
 }
