@@ -108,14 +108,23 @@ func BaseLanguageCode(lang string) string {
 }
 
 // IsFrench returns true if the language code represents French.
-// Used to skip the output language instruction when output is French
-// (since templates are already in French).
 func IsFrench(lang string) bool {
 	if lang == "" {
 		return false
 	}
 	normalized := NormalizeLanguage(lang)
 	return normalized == "fr" || strings.HasPrefix(normalized, "fr-")
+}
+
+// IsEnglish returns true if the language code represents English.
+// Used to skip the output language instruction when output is English
+// (since templates are already in English).
+func IsEnglish(lang string) bool {
+	if lang == "" {
+		return false
+	}
+	normalized := NormalizeLanguage(lang)
+	return normalized == "en" || strings.HasPrefix(normalized, "en-")
 }
 
 // LanguageDisplayName returns a human-readable name for common locales.

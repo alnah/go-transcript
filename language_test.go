@@ -173,6 +173,43 @@ func TestIsFrench(t *testing.T) {
 }
 
 // =============================================================================
+// TestIsEnglish
+// =============================================================================
+
+func TestIsEnglish(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		// Positive cases (English variants)
+		{"en_base", "en", true},
+		{"en_uppercase", "EN", true},
+		{"en_us", "en-US", true},
+		{"en_gb", "en-GB", true},
+		{"en_underscore", "en_US", true},
+		{"en_australia", "en-AU", true},
+
+		// Negative cases
+		{"empty_string", "", false},
+		{"french", "fr", false},
+		{"portuguese", "pt", false},
+		// ISO 639-2 code for English - not detected as English
+		// This is by design: module only supports ISO 639-1
+		{"iso639_2_eng", "eng", false},
+		// Full name - not detected
+		{"full_name", "english", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsEnglish(tt.input)
+			assertEqual(t, got, tt.want)
+		})
+	}
+}
+
+// =============================================================================
 // TestLanguageDisplayName
 // =============================================================================
 
