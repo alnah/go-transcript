@@ -152,7 +152,7 @@ transcript transcribe french.ogg -o notes.md -l fr --output-lang en -t meeting
 |------|-------|---------|-------------|
 | `--output` | `-o` | `<input>.md` | Output file path |
 | `--template` | `-t` | | Restructure template: `brainstorm`, `meeting`, `lecture`, `notes` |
-| `--provider` | | `openai` | LLM provider for restructuring: `openai`, `deepseek` |
+| `--provider` | | `deepseek` | LLM provider for restructuring: `deepseek`, `openai` |
 | `--language` | `-l` | auto-detect | Audio language (ISO 639-1: `en`, `fr`, `pt-BR`) |
 | `--output-lang` | | same as input | Output language for restructured text |
 | `--parallel` | `-p` | `10` | Max concurrent API requests (1-10) |
@@ -216,7 +216,7 @@ transcript config list
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | Yes | | OpenAI API key for transcription (and restructuring with `--provider openai`) |
-| `DEEPSEEK_API_KEY` | No | | DeepSeek API key (required when using `--provider deepseek`) |
+| `DEEPSEEK_API_KEY` | No | | DeepSeek API key (required when using `--template` with default provider) |
 | `TRANSCRIPT_OUTPUT_DIR` | No | `.` | Default output directory |
 | `FFMPEG_PATH` | No | auto | Path to FFmpeg binary (skips auto-download) |
 
@@ -267,11 +267,11 @@ transcript transcribe audio.ogg -t meeting --output-lang fr
 
 ### Provider Selection
 
-Restructuring uses OpenAI by default. Use DeepSeek for alternative processing:
+Restructuring uses DeepSeek by default. Use OpenAI for alternative processing:
 
 ```bash
-# Use DeepSeek for restructuring (requires DEEPSEEK_API_KEY)
-transcript transcribe audio.ogg -t lecture --provider deepseek
+# Use OpenAI for restructuring (uses OPENAI_API_KEY)
+transcript transcribe audio.ogg -t lecture --provider openai
 ```
 
 ## Supported Formats

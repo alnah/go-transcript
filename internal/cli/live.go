@@ -49,8 +49,8 @@ This command combines 'record' and 'transcribe' for convenience.
 The audio is recorded to a temporary file, transcribed, and optionally
 restructured using a template. Use --keep-audio to preserve the recording.
 
-Transcription always uses OpenAI. Restructuring (--template) uses OpenAI by default,
-or DeepSeek with --provider deepseek.
+Transcription always uses OpenAI. Restructuring (--template) uses DeepSeek by default,
+or OpenAI with --provider openai.
 
 Recording can be interrupted with Ctrl+C to stop early and continue transcription.
 Press Ctrl+C twice within 2 seconds to abort entirely.`,
@@ -59,7 +59,7 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
   transcript live -d 1h --mix -t meeting     # Record video call with both sides
   transcript live -d 30m -l en -t meeting    # English audio, English output
   transcript live -d 1h -l fr --output-lang en -t brainstorm  # French audio, English output
-  transcript live -d 1h -t meeting --provider deepseek  # Use DeepSeek for restructuring`,
+  transcript live -d 1h -t meeting --provider openai  # Use OpenAI for restructuring`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Parse duration.
 			duration, err := time.ParseDuration(durationStr)
@@ -101,7 +101,7 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 	cmd.Flags().IntVarP(&parallel, "parallel", "p", transcribe.MaxRecommendedParallel, "Max concurrent API requests (1-10)")
 	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
 	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language for restructured text (requires --template)")
-	cmd.Flags().StringVar(&provider, "provider", ProviderOpenAI, "LLM provider for restructuring: openai, deepseek")
+	cmd.Flags().StringVar(&provider, "provider", ProviderDeepSeek, "LLM provider for restructuring: deepseek, openai")
 
 	// Live-specific flags.
 	cmd.Flags().BoolVarP(&keepAudio, "keep-audio", "k", false, "Keep the audio file after transcription")
