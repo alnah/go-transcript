@@ -16,3 +16,6 @@ var ErrChunkTooLarge = errors.New("chunk exceeds 25MB limit")
 
 // ErrFileNotFound indicates the specified input file does not exist.
 var ErrFileNotFound = errors.New("file not found")
+
+// ErrInvalidOverlap indicates overlap duration is invalid (>= target duration).
+var ErrInvalidOverlap = errors.New("overlap must be less than target duration")

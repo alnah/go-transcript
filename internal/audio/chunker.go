@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -13,6 +12,12 @@ import (
 
 	"github.com/alnah/go-transcript/internal/ffmpeg"
 	"github.com/alnah/go-transcript/internal/format"
+)
+
+// Compile-time interface implementation checks.
+var (
+	_ Chunker = (*TimeChunker)(nil)
+	_ Chunker = (*SilenceChunker)(nil)
 )
 
 // Chunk represents a segment of audio extracted from a larger file.
@@ -73,7 +78,20 @@ const (
 
 	// defaultTargetDuration is the target chunk duration for time-based chunking.
 	defaultTargetDuration = 10 * time.Minute
+
+	// trailingSilenceEndPadding is added after trimming trailing silence
+	// to ensure the last words are captured by transcription.
+	trailingSilenceEndPadding = 5 * time.Second
 )
+
+// WarnFunc is a callback for warning messages during chunking.
+// Set to nil to suppress warnings, or provide a custom handler.
+type WarnFunc func(msg string)
+
+// defaultWarnFunc writes warnings to stderr.
+func defaultWarnFunc(msg string) {
+	fmt.Fprintln(os.Stderr, msg)
+}
 
 // TimeChunker splits audio into fixed-duration chunks with overlap.
 // This is the fallback strategy when silence detection fails or finds no silences.
@@ -81,10 +99,39 @@ type TimeChunker struct {
 	ffmpegPath     string
 	targetDuration time.Duration
 	overlap        time.Duration
+
+	// Injectable dependencies (defaults to OS implementations).
+	cmd     commandRunner
+	tempDir tempDirCreator
+	files   fileRemover
+}
+
+// TimeChunkerOption configures a TimeChunker.
+type TimeChunkerOption func(*TimeChunker)
+
+// WithTimeChunkerCommandRunner sets the command runner for TimeChunker.
+func WithTimeChunkerCommandRunner(r commandRunner) TimeChunkerOption {
+	return func(tc *TimeChunker) {
+		tc.cmd = r
+	}
+}
+
+// WithTimeChunkerTempDir sets the temp directory creator for TimeChunker.
+func WithTimeChunkerTempDir(t tempDirCreator) TimeChunkerOption {
+	return func(tc *TimeChunker) {
+		tc.tempDir = t
+	}
+}
+
+// WithTimeChunkerFileRemover sets the file remover for TimeChunker.
+func WithTimeChunkerFileRemover(f fileRemover) TimeChunkerOption {
+	return func(tc *TimeChunker) {
+		tc.files = f
+	}
 }
 
 // NewTimeChunker creates a TimeChunker with the specified parameters.
-func NewTimeChunker(ffmpegPath string, targetDuration, overlap time.Duration) (*TimeChunker, error) {
+func NewTimeChunker(ffmpegPath string, targetDuration, overlap time.Duration, opts ...TimeChunkerOption) (*TimeChunker, error) {
 	if ffmpegPath == "" {
 		return nil, fmt.Errorf("ffmpegPath cannot be empty: %w", ffmpeg.ErrNotFound)
 	}
@@ -95,13 +142,23 @@ func NewTimeChunker(ffmpegPath string, targetDuration, overlap time.Duration) (*
 		overlap = 0
 	}
 	if overlap >= targetDuration {
-		return nil, fmt.Errorf("overlap (%v) must be less than targetDuration (%v)", overlap, targetDuration)
+		return nil, fmt.Errorf("%w: overlap %v >= target %v", ErrInvalidOverlap, overlap, targetDuration)
 	}
-	return &TimeChunker{
+
+	tc := &TimeChunker{
 		ffmpegPath:     ffmpegPath,
 		targetDuration: targetDuration,
 		overlap:        overlap,
-	}, nil
+		cmd:            osCommandRunner{},
+		tempDir:        osTempDirCreator{},
+		files:          osFileRemover{},
+	}
+
+	for _, opt := range opts {
+		opt(tc)
+	}
+
+	return tc, nil
 }
 
 // Chunk splits the audio file into fixed-duration segments with overlap.
@@ -113,7 +170,7 @@ func (tc *TimeChunker) Chunk(ctx context.Context, audioPath string) ([]Chunk, er
 	}
 
 	// Create temp directory for chunks.
-	tempDir, err := os.MkdirTemp("", "go-transcript-*")
+	tempDir, err := tc.tempDir.MkdirTemp("", "go-transcript-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
@@ -130,8 +187,7 @@ func (tc *TimeChunker) Chunk(ctx context.Context, audioPath string) ([]Chunk, er
 
 		chunkPath := filepath.Join(tempDir, fmt.Sprintf("chunk_%03d.ogg", i))
 		if err := tc.extractChunk(ctx, audioPath, chunkPath, start, end); err != nil {
-			// Cleanup on failure.
-			_ = os.RemoveAll(tempDir)
+			_ = tc.files.RemoveAll(tempDir) // best-effort cleanup; original error takes precedence
 			return nil, err
 		}
 
@@ -159,12 +215,16 @@ func (tc *TimeChunker) probeDuration(ctx context.Context, audioPath string) (tim
 		"-i", audioPath,
 		"-f", "null", "-",
 	}
-	output, err := ffmpeg.RunOutput(ctx, tc.ffmpegPath, args)
+	output, err := tc.cmd.CombinedOutput(ctx, tc.ffmpegPath, args)
 	if err != nil {
-		return 0, err
+		// FFmpeg returns non-zero even when it successfully reads file info,
+		// so we try to parse the output anyway.
+		if len(output) == 0 {
+			return 0, err
+		}
 	}
 
-	return parseDurationFromFFmpegOutput(output)
+	return parseDurationFromFFmpegOutput(string(output))
 }
 
 // parseDurationFromFFmpegOutput extracts duration from FFmpeg stderr.
@@ -189,26 +249,26 @@ func parseDurationFromFFmpegOutput(output string) (time.Duration, error) {
 }
 
 // parseTimeComponents converts HH:MM:SS.ms strings to Duration.
-func parseTimeComponents(hours, minutes, seconds, centiseconds string) (time.Duration, error) {
+func parseTimeComponents(hours, minutes, seconds, fractional string) (time.Duration, error) {
 	h, _ := strconv.Atoi(hours)
 	m, _ := strconv.Atoi(minutes)
 	s, _ := strconv.Atoi(seconds)
-	// Centiseconds may be 2 digits (.45) or more (.456789).
-	cs, _ := strconv.Atoi(centiseconds)
-	// Normalize to milliseconds based on digit count.
-	ms := cs
-	switch len(centiseconds) {
-	case 1:
-		ms = cs * 100
-	case 2:
-		ms = cs * 10
-	case 3:
+
+	// Normalize fractional part to milliseconds.
+	// Input may be 1-6+ digits (e.g., ".4", ".45", ".456", ".456789").
+	frac, _ := strconv.Atoi(fractional)
+	ms := frac
+	switch n := len(fractional); {
+	case n == 1:
+		ms = frac * 100
+	case n == 2:
+		ms = frac * 10
+	case n == 3:
 		// Already milliseconds.
-	default:
-		// More precision than we need, truncate.
-		for len(centiseconds) > 3 {
+	case n > 3:
+		// Truncate excess precision by dividing.
+		for i := n; i > 3; i-- {
 			ms /= 10
-			centiseconds = centiseconds[:len(centiseconds)-1]
 		}
 	}
 
@@ -230,9 +290,9 @@ func chunkEncodingArgs() []string {
 	}
 }
 
-// extractChunk extracts a segment from audioPath to chunkPath.
+// runExtractChunk extracts a segment from audioPath to chunkPath using FFmpeg.
 // Re-encodes to OGG Vorbis to ensure valid output even from corrupted/truncated sources.
-func (tc *TimeChunker) extractChunk(ctx context.Context, audioPath, chunkPath string, start, end time.Duration) error {
+func runExtractChunk(ctx context.Context, cmd commandRunner, ffmpegPath, audioPath, chunkPath string, start, end time.Duration) error {
 	args := []string{
 		"-y",
 		"-i", audioPath,
@@ -242,14 +302,17 @@ func (tc *TimeChunker) extractChunk(ctx context.Context, audioPath, chunkPath st
 	args = append(args, chunkEncodingArgs()...)
 	args = append(args, chunkPath)
 
-	// #nosec G204 -- ffmpegPath is resolved internally via Resolve, not user input
-	cmd := exec.CommandContext(ctx, tc.ffmpegPath, args...)
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput(ctx, ffmpegPath, args)
 	if err != nil {
 		return fmt.Errorf("%w: failed to extract chunk %s: %v\nOutput: %s",
 			ErrChunkingFailed, chunkPath, err, string(output))
 	}
 	return nil
+}
+
+// extractChunk extracts a segment from audioPath to chunkPath.
+func (tc *TimeChunker) extractChunk(ctx context.Context, audioPath, chunkPath string, start, end time.Duration) error {
+	return runExtractChunk(ctx, tc.cmd, tc.ffmpegPath, audioPath, chunkPath, start, end)
 }
 
 // formatFFmpegTime formats a duration for FFmpeg -ss/-to arguments.
@@ -268,6 +331,13 @@ type SilenceChunker struct {
 	minSilence   time.Duration
 	maxChunkSize int64
 	fallback     Chunker
+	warn         WarnFunc
+
+	// Injectable dependencies (defaults to OS implementations).
+	cmd     commandRunner
+	tempDir tempDirCreator
+	files   fileRemover
+	statter fileStatter
 }
 
 // SilenceChunkerOption configures a SilenceChunker.
@@ -306,6 +376,42 @@ func WithFallback(c Chunker) SilenceChunkerOption {
 	}
 }
 
+// WithCommandRunner sets the command runner for SilenceChunker.
+func WithCommandRunner(r commandRunner) SilenceChunkerOption {
+	return func(sc *SilenceChunker) {
+		sc.cmd = r
+	}
+}
+
+// WithTempDirCreator sets the temp directory creator for SilenceChunker.
+func WithTempDirCreator(t tempDirCreator) SilenceChunkerOption {
+	return func(sc *SilenceChunker) {
+		sc.tempDir = t
+	}
+}
+
+// WithFileRemover sets the file remover for SilenceChunker.
+func WithFileRemover(f fileRemover) SilenceChunkerOption {
+	return func(sc *SilenceChunker) {
+		sc.files = f
+	}
+}
+
+// WithFileStatter sets the file statter for SilenceChunker.
+func WithFileStatter(s fileStatter) SilenceChunkerOption {
+	return func(sc *SilenceChunker) {
+		sc.statter = s
+	}
+}
+
+// WithWarnFunc sets a callback for warning messages.
+// By default, warnings are written to stderr. Set to nil to suppress.
+func WithWarnFunc(fn WarnFunc) SilenceChunkerOption {
+	return func(sc *SilenceChunker) {
+		sc.warn = fn
+	}
+}
+
 // NewSilenceChunker creates a SilenceChunker with functional options.
 // If no fallback is provided, a default TimeChunker is created.
 func NewSilenceChunker(ffmpegPath string, opts ...SilenceChunkerOption) (*SilenceChunker, error) {
@@ -318,6 +424,11 @@ func NewSilenceChunker(ffmpegPath string, opts ...SilenceChunkerOption) (*Silenc
 		noiseDB:      defaultNoiseDB,
 		minSilence:   defaultMinSilence,
 		maxChunkSize: defaultMaxChunkSize,
+		warn:         defaultWarnFunc,
+		cmd:          osCommandRunner{},
+		tempDir:      osTempDirCreator{},
+		files:        osFileRemover{},
+		statter:      osFileStatter{},
 	}
 
 	for _, opt := range opts {
@@ -340,7 +451,7 @@ func NewSilenceChunker(ffmpegPath string, opts ...SilenceChunkerOption) (*Silenc
 // If no silences are found, falls back to time-based chunking.
 func (sc *SilenceChunker) Chunk(ctx context.Context, audioPath string) ([]Chunk, error) {
 	// Get file info for bitrate estimation.
-	fileInfo, err := os.Stat(audioPath)
+	fileInfo, err := sc.statter.Stat(audioPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFileNotFound, err)
 	}
@@ -349,24 +460,26 @@ func (sc *SilenceChunker) Chunk(ctx context.Context, audioPath string) ([]Chunk,
 	// Detect silences.
 	silences, totalDuration, err := sc.detectSilences(ctx, audioPath)
 	if err != nil {
-		// Log warning and fall back to time-based chunking.
-		fmt.Fprintf(os.Stderr, "Warning: silence detection failed (%v), using time-based chunking\n", err)
+		// Warn and fall back to time-based chunking.
+		if sc.warn != nil {
+			sc.warn(fmt.Sprintf("Warning: silence detection failed (%v), using time-based chunking", err))
+		}
 		return sc.fallback.Chunk(ctx, audioPath)
 	}
 
 	// No silences found - fall back to time-based chunking.
 	if len(silences) == 0 {
-		fmt.Fprintln(os.Stderr, "Warning: no silences detected, using time-based chunking (may cut mid-sentence)")
+		if sc.warn != nil {
+			sc.warn("Warning: no silences detected, using time-based chunking (may cut mid-sentence)")
+		}
 		return sc.fallback.Chunk(ctx, audioPath)
 	}
 
 	// Trim trailing silence: if last silence extends to end of file, use its start as effective end.
 	// This prevents OpenAI from truncating transcriptions when chunks end with long silence.
-	// Add a small padding (5s) after the trim point to ensure OpenAI captures the last words.
 	effectiveDuration := trimTrailingSilence(silences, totalDuration)
-	const endPadding = 5 * time.Second
 	if effectiveDuration < totalDuration {
-		effectiveDuration = min(effectiveDuration+endPadding, totalDuration)
+		effectiveDuration = min(effectiveDuration+trailingSilenceEndPadding, totalDuration)
 	}
 
 	// Calculate average bitrate for size estimation (use effective duration for accuracy).
@@ -376,7 +489,7 @@ func (sc *SilenceChunker) Chunk(ctx context.Context, audioPath string) ([]Chunk,
 	cutPoints := sc.selectCutPoints(silences, avgBitrate)
 
 	// Create temp directory for chunks.
-	tempDir, err := os.MkdirTemp("", "go-transcript-*")
+	tempDir, err := sc.tempDir.MkdirTemp("", "go-transcript-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
@@ -384,7 +497,7 @@ func (sc *SilenceChunker) Chunk(ctx context.Context, audioPath string) ([]Chunk,
 	// Extract chunks using effective duration (excluding trailing silence).
 	chunks, err := sc.extractChunks(ctx, audioPath, tempDir, cutPoints, effectiveDuration)
 	if err != nil {
-		_ = os.RemoveAll(tempDir)
+		_ = sc.files.RemoveAll(tempDir) // best-effort cleanup; original error takes precedence
 		return nil, err
 	}
 
@@ -440,13 +553,17 @@ func (sc *SilenceChunker) detectSilences(ctx context.Context, audioPath string) 
 		"-",
 	}
 
-	output, err := ffmpeg.RunOutput(ctx, sc.ffmpegPath, args)
+	output, err := sc.cmd.CombinedOutput(ctx, sc.ffmpegPath, args)
 	if err != nil {
-		return nil, 0, err
+		// FFmpeg may return non-zero even on success, try parsing output
+		if len(output) == 0 {
+			return nil, 0, err
+		}
 	}
 
-	silences := parseSilenceOutput(output)
-	duration, err := parseDurationFromFFmpegOutput(output)
+	outputStr := string(output)
+	silences := parseSilenceOutput(outputStr)
+	duration, err := parseDurationFromFFmpegOutput(outputStr)
 	if err != nil {
 		return nil, 0, fmt.Errorf("could not determine audio duration: %w", err)
 	}
@@ -564,9 +681,8 @@ func (sc *SilenceChunker) extractChunks(ctx context.Context, audioPath, tempDir 
 
 		chunkPath := filepath.Join(tempDir, fmt.Sprintf("chunk_%03d.ogg", i))
 		if err := sc.extractChunk(ctx, audioPath, chunkPath, extractStart, end); err != nil {
-			// Cleanup chunks already created before returning error.
 			for _, c := range chunks {
-				_ = os.Remove(c.Path)
+				_ = sc.files.Remove(c.Path) // best-effort cleanup; original error takes precedence
 			}
 			return nil, err
 		}
@@ -617,23 +733,7 @@ func expandBoundariesForDuration(boundaries []time.Duration, maxDuration time.Du
 // extractChunk extracts a segment from audioPath to chunkPath.
 // Re-encodes to OGG Vorbis to ensure valid output even from corrupted/truncated sources.
 func (sc *SilenceChunker) extractChunk(ctx context.Context, audioPath, chunkPath string, start, end time.Duration) error {
-	args := []string{
-		"-y",
-		"-i", audioPath,
-		"-ss", formatFFmpegTime(start),
-		"-to", formatFFmpegTime(end),
-	}
-	args = append(args, chunkEncodingArgs()...)
-	args = append(args, chunkPath)
-
-	// #nosec G204 -- ffmpegPath is resolved internally via Resolve, not user input
-	cmd := exec.CommandContext(ctx, sc.ffmpegPath, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: failed to extract chunk %s: %v\nOutput: %s",
-			ErrChunkingFailed, chunkPath, err, string(output))
-	}
-	return nil
+	return runExtractChunk(ctx, sc.cmd, sc.ffmpegPath, audioPath, chunkPath, start, end)
 }
 
 // CleanupChunks removes all chunk files and their parent directory.
@@ -651,7 +751,7 @@ func CleanupChunks(chunks []Chunk) error {
 		// Safety check: don't delete arbitrary directories.
 		// Fall back to removing individual files.
 		for _, chunk := range chunks {
-			_ = os.Remove(chunk.Path)
+			_ = os.Remove(chunk.Path) // best-effort cleanup; files may already be gone
 		}
 		return nil
 	}
