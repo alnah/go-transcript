@@ -325,7 +325,10 @@ func (r *FFmpegRecorder) listDevices(ctx context.Context) ([]string, error) {
 	args := listDevicesArgs(format)
 
 	stderr, err := r.ffmpegRunner.RunOutput(ctx, r.ffmpegPath, args)
-	if err != nil {
+	// FFmpeg -list_devices always exits non-zero (no actual input to process),
+	// but stderr contains the device list. Only treat as error if stderr is empty
+	// (indicates real failure like permission denied or ffmpeg not found).
+	if err != nil && stderr == "" {
 		return nil, err
 	}
 

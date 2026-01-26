@@ -577,9 +577,38 @@ func TestFFmpegRecorder_ListDevices(t *testing.T) {
 		}
 	})
 
-	t.Run("ffmpeg error propagates", func(t *testing.T) {
+	t.Run("ffmpeg exit error with valid stderr returns devices", func(t *testing.T) {
 		t.Parallel()
 
+		// FFmpeg -list_devices always exits non-zero, but stderr contains device list.
+		mockRunner := &mockFFmpegRunner{
+			runOutputFunc: func(ctx context.Context, ffmpegPath string, args []string) (string, error) {
+				return `[AVFoundation indev @ 0x7f8] AVFoundation video devices:
+[AVFoundation indev @ 0x7f8] [0] FaceTime HD Camera
+[AVFoundation indev @ 0x7f8] AVFoundation audio devices:
+[AVFoundation indev @ 0x7f8] [0] MacBook Pro Microphone`, errors.New("exit status 1")
+			},
+		}
+
+		rec, _ := audio.NewFFmpegRecorder(
+			"/usr/bin/ffmpeg",
+			"",
+			audio.ExportedWithFFmpegRunner(mockRunner),
+		)
+
+		devices, err := rec.ListDevices(context.Background())
+		if err != nil {
+			t.Fatalf("ListDevices() should ignore exit error when stderr has content, got: %v", err)
+		}
+		if len(devices) == 0 {
+			t.Error("ListDevices() should return devices from stderr")
+		}
+	})
+
+	t.Run("ffmpeg error with empty stderr propagates", func(t *testing.T) {
+		t.Parallel()
+
+		// Real failure: no stderr output means actual error (permission denied, not found, etc.)
 		expectedErr := errors.New("ffmpeg not found")
 		mockRunner := &mockFFmpegRunner{
 			runOutputFunc: func(ctx context.Context, ffmpegPath string, args []string) (string, error) {
@@ -595,7 +624,7 @@ func TestFFmpegRecorder_ListDevices(t *testing.T) {
 
 		_, err := rec.ListDevices(context.Background())
 		if err == nil {
-			t.Error("ListDevices() expected error, got nil")
+			t.Error("ListDevices() expected error when stderr is empty, got nil")
 		}
 	})
 }
