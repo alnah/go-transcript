@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,7 +27,14 @@ const (
 
 	// FormatDiarizedJSON is the response format for diarized transcription.
 	// Not yet a constant in go-openai.
-	FormatDiarizedJSON = "diarized_json"
+	FormatDiarizedJSON openai.AudioResponseFormat = "diarized_json"
+)
+
+// Parallelism configuration.
+const (
+	// MaxRecommendedParallel is the recommended upper limit for concurrent API requests.
+	// Higher values may trigger rate limiting.
+	MaxRecommendedParallel = 10
 )
 
 // Default retry configuration per specification.
@@ -38,31 +46,57 @@ const (
 
 // RetryConfig holds retry parameters for exponential backoff.
 // Exported so other packages (e.g., restructure) can use RetryWithBackoff.
+//
+// All fields must be non-negative. Invalid values are normalized:
+// - MaxRetries < 0 becomes 0 (single attempt)
+// - BaseDelay <= 0 becomes 1ms
+// - MaxDelay <= 0 becomes BaseDelay
 type RetryConfig struct {
 	MaxRetries int
 	BaseDelay  time.Duration
 	MaxDelay   time.Duration
 }
 
+// normalize ensures all RetryConfig fields have valid values.
+func (c *RetryConfig) normalize() {
+	if c.MaxRetries < 0 {
+		c.MaxRetries = 0
+	}
+	if c.BaseDelay <= 0 {
+		c.BaseDelay = time.Millisecond
+	}
+	if c.MaxDelay <= 0 {
+		c.MaxDelay = c.BaseDelay
+	}
+}
+
 // RetryWithBackoff executes fn with exponential backoff retry.
 // It retries only if shouldRetry returns true for the error.
 // Returns the result of the last attempt.
+//
+// Invalid RetryConfig values are normalized (see RetryConfig documentation).
 func RetryWithBackoff[T any](
 	ctx context.Context,
 	cfg RetryConfig,
 	fn func() (T, error),
 	shouldRetry func(error) bool,
 ) (T, error) {
+	cfg.normalize()
+
 	var zero T
 	var lastErr error
 	delay := cfg.BaseDelay
 
 	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
 				return zero, ctx.Err()
-			case <-time.After(delay):
+			case <-timer.C:
 			}
 			// Exponential backoff with cap.
 			delay = min(delay*2, cfg.MaxDelay)
@@ -90,7 +124,7 @@ type Options struct {
 	// LIMITATION (V1): The go-openai library does not yet support proper speaker
 	// diarization parsing. Output is formatted as "[Segment N] text" rather than
 	// "[Speaker N] text". This will be updated when go-openai adds support.
-	// See: https://github.com/sashabaranov/go-openai/issues
+	// TODO(diarization): Track upstream support at https://github.com/sashabaranov/go-openai/issues/924
 	Diarize bool
 
 	// Prompt provides context to improve transcription accuracy.
@@ -119,6 +153,12 @@ type Transcriber interface {
 type audioTranscriber interface {
 	CreateTranscription(ctx context.Context, req openai.AudioRequest) (openai.AudioResponse, error)
 }
+
+// Compile-time interface compliance checks.
+var (
+	_ Transcriber      = (*OpenAITranscriber)(nil)
+	_ audioTranscriber = (*openai.Client)(nil)
+)
 
 // OpenAITranscriber transcribes audio using OpenAI's transcription API.
 // It supports automatic retries with exponential backoff for transient errors.
@@ -220,16 +260,18 @@ func (t *OpenAITranscriber) transcribeWithRetry(ctx context.Context, req openai.
 //
 // Expected future format: "[Speaker 1] text\n[Speaker 2] text\n..."
 // Current format: "[Segment 0] text\n[Segment 1] text\n..."
+//
+// TODO(diarization): Track upstream support at https://github.com/sashabaranov/go-openai/issues/924
 func formatDiarizedResponse(resp openai.AudioResponse) string {
 	if len(resp.Segments) == 0 {
 		return resp.Text
 	}
 
-	var result string
+	var b strings.Builder
 	for _, seg := range resp.Segments {
-		result += fmt.Sprintf("[Segment %d] %s\n", seg.ID, seg.Text)
+		fmt.Fprintf(&b, "[Segment %d] %s\n", seg.ID, seg.Text)
 	}
-	return result
+	return b.String()
 }
 
 // classifyError maps OpenAI API errors to sentinel errors.
@@ -249,6 +291,8 @@ func classifyError(err error) error {
 			return fmt.Errorf("%s: %w", apiErr.Message, ErrAuthFailed)
 		case http.StatusRequestTimeout, http.StatusGatewayTimeout:
 			return fmt.Errorf("%s: %w", apiErr.Message, ErrTimeout)
+		case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound:
+			return fmt.Errorf("%s: %w", apiErr.Message, ErrBadRequest)
 		}
 	}
 
@@ -300,7 +344,7 @@ func isRetryableError(err error) bool {
 // TranscribeAll transcribes multiple audio chunks in parallel.
 // Results are returned in the same order as the input chunks.
 // If any chunk fails, the entire operation is aborted and the error is returned.
-// maxParallel limits the number of concurrent API requests (1-10 recommended).
+// maxParallel limits the number of concurrent API requests (1-MaxRecommendedParallel recommended).
 func TranscribeAll(
 	ctx context.Context,
 	chunks []audio.Chunk,
@@ -317,6 +361,8 @@ func TranscribeAll(
 	}
 
 	results := make([]string, len(chunks))
+	// Semaphore channel for concurrency control.
+	// Not closed explicitly: it's local to this function and will be GC'd.
 	sem := make(chan struct{}, maxParallel)
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -333,7 +379,7 @@ func TranscribeAll(
 
 			text, err := t.Transcribe(ctx, chunk.Path, opts)
 			if err != nil {
-				return fmt.Errorf("chunk %d (%s): %w", chunk.Index, chunk.Path, err)
+				return fmt.Errorf("chunk %d (%s): %w", chunk.Index, filepath.Base(chunk.Path), err)
 			}
 			results[i] = text
 			return nil
