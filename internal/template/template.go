@@ -1,6 +1,12 @@
 package template
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrUnknown indicates an invalid template name was specified.
+var ErrUnknown = errors.New("unknown template")
 
 // Template name constants.
 // Use these instead of string literals for compile-time safety.
