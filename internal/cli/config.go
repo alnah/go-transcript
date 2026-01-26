@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"slices"
 
 	"github.com/spf13/cobra"
@@ -16,7 +15,8 @@ var validConfigKeys = []string{
 }
 
 // ConfigCmd creates the config command with subcommands.
-func ConfigCmd() *cobra.Command {
+// The env parameter provides injectable dependencies for testing.
+func ConfigCmd(env *Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage configuration settings",
@@ -32,15 +32,15 @@ Supported settings:
   transcript config list`,
 	}
 
-	cmd.AddCommand(configSetCmd())
-	cmd.AddCommand(configGetCmd())
-	cmd.AddCommand(configListCmd())
+	cmd.AddCommand(configSetCmd(env))
+	cmd.AddCommand(configGetCmd(env))
+	cmd.AddCommand(configListCmd(env))
 
 	return cmd
 }
 
 // configSetCmd creates the "config set" subcommand.
-func configSetCmd() *cobra.Command {
+func configSetCmd(env *Env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a configuration value",
@@ -55,13 +55,13 @@ The directory will be created if it doesn't exist.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, value := args[0], args[1]
-			return runConfigSet(key, value)
+			return runConfigSet(env, key, value)
 		},
 	}
 }
 
 // configGetCmd creates the "config get" subcommand.
-func configGetCmd() *cobra.Command {
+func configGetCmd(env *Env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <key>",
 		Short: "Get a configuration value",
@@ -71,13 +71,13 @@ Prints the value to stdout, or nothing if not set.`,
 		Example: `  transcript config get output-dir`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfigGet(args[0])
+			return runConfigGet(env, args[0])
 		},
 	}
 }
 
 // configListCmd creates the "config list" subcommand.
-func configListCmd() *cobra.Command {
+func configListCmd(env *Env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all configuration values",
@@ -87,13 +87,13 @@ Shows both values from the config file and environment variable overrides.`,
 		Example: `  transcript config list`,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfigList()
+			return runConfigList(env)
 		},
 	}
 }
 
 // runConfigSet handles the "config set" command.
-func runConfigSet(key, value string) error {
+func runConfigSet(env *Env, key, value string) error {
 	// Validate key.
 	if !isValidConfigKey(key) {
 		return fmt.Errorf("unknown config key %q (valid keys: %v)", key, validConfigKeys)
@@ -104,7 +104,7 @@ func runConfigSet(key, value string) error {
 	case config.KeyOutputDir:
 		// Expand ~ and validate directory.
 		expanded := config.ExpandPath(value)
-		if err := config.ValidOutputDir(expanded); err != nil {
+		if err := config.EnsureOutputDir(expanded); err != nil {
 			return fmt.Errorf("invalid output-dir: %w", err)
 		}
 		// Store the expanded path for consistency.
@@ -116,12 +116,12 @@ func runConfigSet(key, value string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "Set %s = %s\n", key, value)
+	fmt.Fprintf(env.Stderr, "Set %s = %s\n", key, value)
 	return nil
 }
 
 // runConfigGet handles the "config get" command.
-func runConfigGet(key string) error {
+func runConfigGet(env *Env, key string) error {
 	// Validate key.
 	if !isValidConfigKey(key) {
 		return fmt.Errorf("unknown config key %q (valid keys: %v)", key, validConfigKeys)
@@ -136,7 +136,7 @@ func runConfigGet(key string) error {
 	if value == "" {
 		switch key {
 		case config.KeyOutputDir:
-			value = os.Getenv(config.EnvOutputDir)
+			value = env.Getenv(config.EnvOutputDir)
 		}
 	}
 
@@ -148,7 +148,7 @@ func runConfigGet(key string) error {
 }
 
 // runConfigList handles the "config list" command.
-func runConfigList() error {
+func runConfigList(env *Env) error {
 	data, err := config.List()
 	if err != nil {
 		return err
@@ -156,8 +156,8 @@ func runConfigList() error {
 
 	// Add environment variable values for completeness.
 	if _, ok := data[config.KeyOutputDir]; !ok {
-		if env := os.Getenv(config.EnvOutputDir); env != "" {
-			data[config.KeyOutputDir] = env + " (from env)"
+		if envVal := env.Getenv(config.EnvOutputDir); envVal != "" {
+			data[config.KeyOutputDir] = envVal + " (from env)"
 		}
 	}
 

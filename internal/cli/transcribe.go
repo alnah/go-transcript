@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
-	openai "github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 
 	"github.com/alnah/go-transcript/internal/audio"
 	"github.com/alnah/go-transcript/internal/config"
-	"github.com/alnah/go-transcript/internal/ffmpeg"
 	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/restructure"
 	"github.com/alnah/go-transcript/internal/template"
@@ -33,22 +32,24 @@ var supportedFormats = map[string]bool{
 	".webm": true,
 }
 
-// supportedFormatsList returns a comma-separated list for error messages.
+// supportedFormatsList returns a sorted, comma-separated list for error messages.
+// The list is sorted for deterministic output in tests and user-facing messages.
 func supportedFormatsList() string {
 	formats := make([]string, 0, len(supportedFormats))
 	for ext := range supportedFormats {
 		formats = append(formats, strings.TrimPrefix(ext, "."))
 	}
+	slices.Sort(formats)
 	return strings.Join(formats, ", ")
 }
 
-// clampParallel constrains parallel request count to valid range [1, 10].
+// clampParallel constrains parallel request count to valid range [1, MaxRecommendedParallel].
 func clampParallel(n int) int {
 	if n < 1 {
 		return 1
 	}
-	if n > 10 {
-		return 10
+	if n > transcribe.MaxRecommendedParallel {
+		return transcribe.MaxRecommendedParallel
 	}
 	return n
 }
@@ -61,7 +62,8 @@ func deriveOutputPath(inputPath string) string {
 }
 
 // TranscribeCmd creates the transcribe command.
-func TranscribeCmd() *cobra.Command {
+// The env parameter provides injectable dependencies for testing.
+func TranscribeCmd(env *Env) *cobra.Command {
 	var (
 		output     string
 		tmpl       string
@@ -87,14 +89,14 @@ Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
   transcript transcribe session.ogg  # Raw transcript, no restructuring`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTranscribe(cmd, args[0], output, tmpl, diarize, parallel, language, outputLang)
+			return runTranscribe(cmd, env, args[0], output, tmpl, diarize, parallel, language, outputLang)
 		},
 	}
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (default: <input>.md)")
 	cmd.Flags().StringVarP(&tmpl, "template", "t", "", "Restructure template: brainstorm, meeting, lecture")
 	cmd.Flags().BoolVar(&diarize, "diarize", false, "Enable speaker identification")
-	cmd.Flags().IntVarP(&parallel, "parallel", "p", 10, "Max concurrent API requests (1-10)")
+	cmd.Flags().IntVarP(&parallel, "parallel", "p", transcribe.MaxRecommendedParallel, "Max concurrent API requests (1-10)")
 	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
 	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language for restructured text (requires --template)")
 
@@ -103,7 +105,7 @@ Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
 
 // runTranscribe executes the transcription pipeline.
 // Validation order: file exists -> format -> output -> template -> language -> parallel -> API key
-func runTranscribe(cmd *cobra.Command, inputPath, output, tmpl string, diarize bool, parallel int, language, outputLang string) error {
+func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string, diarize bool, parallel int, language, outputLang string) error {
 	ctx := cmd.Context()
 
 	// === VALIDATION (fail-fast) ===
@@ -124,9 +126,9 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, tmpl string, diarize b
 	}
 
 	// 3. Load config for output-dir
-	cfg, err := config.Load()
+	cfg, err := env.ConfigLoader.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
+		fmt.Fprintf(env.Stderr, "Warning: failed to load config: %v\n", err)
 	}
 
 	// 4. Output path (resolve with output-dir, derive default from input if needed)
@@ -157,7 +159,7 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, tmpl string, diarize b
 	parallel = clampParallel(parallel)
 
 	// 9. API key present
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := env.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		return fmt.Errorf("%w (set it with: export OPENAI_API_KEY=sk-...)", ErrAPIKeyMissing)
 	}
@@ -165,17 +167,17 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, tmpl string, diarize b
 	// === SETUP ===
 
 	// Resolve FFmpeg (may auto-download)
-	ffmpegPath, err := ffmpeg.Resolve(ctx)
+	ffmpegPath, err := env.FFmpegResolver.Resolve(ctx)
 	if err != nil {
 		return err
 	}
-	ffmpeg.CheckVersion(ctx, ffmpegPath)
+	env.FFmpegResolver.CheckVersion(ctx, ffmpegPath)
 
 	// === CHUNKING ===
 
-	fmt.Fprintln(os.Stderr, "Detecting silences...")
+	fmt.Fprintln(env.Stderr, "Detecting silences...")
 
-	chunker, err := audio.NewSilenceChunker(ffmpegPath)
+	chunker, err := env.ChunkerFactory.NewSilenceChunker(ffmpegPath)
 	if err != nil {
 		return err
 	}
@@ -188,36 +190,35 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, tmpl string, diarize b
 	// Ensure cleanup even on error or interrupt
 	defer func() {
 		if cleanupErr := audio.CleanupChunks(chunks); cleanupErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to cleanup chunks: %v\n", cleanupErr)
+			fmt.Fprintf(env.Stderr, "Warning: failed to cleanup chunks: %v\n", cleanupErr)
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "Chunking audio... %d chunks\n", len(chunks))
+	fmt.Fprintf(env.Stderr, "Chunking audio... %d chunks\n", len(chunks))
 
 	// === TRANSCRIPTION ===
 
-	client := openai.NewClient(apiKey)
-	transcriber := transcribe.NewOpenAITranscriber(client)
+	transcriber := env.TranscriberFactory.NewTranscriber(apiKey)
 	opts := transcribe.Options{
 		Diarize:  diarize,
 		Language: language,
 	}
 
 	// Transcribe with progress output
-	fmt.Fprintln(os.Stderr, "Transcribing...")
+	fmt.Fprintln(env.Stderr, "Transcribing...")
 	results, err := transcribe.TranscribeAll(ctx, chunks, transcriber, opts, parallel)
 	if err != nil {
 		return err
 	}
 
 	transcript := strings.Join(results, "\n\n")
-	fmt.Fprintln(os.Stderr, "Transcription complete")
+	fmt.Fprintln(env.Stderr, "Transcription complete")
 
 	// === RESTRUCTURE (optional) ===
 
 	finalOutput := transcript
 	if tmpl != "" && strings.TrimSpace(transcript) != "" {
-		fmt.Fprintf(os.Stderr, "Restructuring with template '%s'...\n", tmpl)
+		fmt.Fprintf(env.Stderr, "Restructuring with template '%s'...\n", tmpl)
 
 		// Default output language to input language if not specified
 		effectiveOutputLang := outputLang
@@ -225,13 +226,13 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, tmpl string, diarize b
 			effectiveOutputLang = language
 		}
 
-		restructurer := restructure.NewOpenAIRestructurer(client)
-		mrRestructurer := restructure.NewMapReduceRestructurer(restructurer,
+		restructurer := env.RestructurerFactory.NewRestructurer(apiKey)
+		mrRestructurer := env.RestructurerFactory.NewMapReduceRestructurer(restructurer,
 			restructure.WithMapReduceProgress(func(phase string, current, total int) {
 				if phase == "map" {
-					fmt.Fprintf(os.Stderr, "  Processing part %d/%d...\n", current, total)
+					fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)
 				} else {
-					fmt.Fprintln(os.Stderr, "  Merging parts...")
+					fmt.Fprintln(env.Stderr, "  Merging parts...")
 				}
 			}),
 		)
@@ -269,6 +270,6 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, tmpl string, diarize b
 		return writeErr
 	}
 
-	fmt.Fprintf(os.Stderr, "Done: %s\n", output)
+	fmt.Fprintf(env.Stderr, "Done: %s\n", output)
 	return nil
 }

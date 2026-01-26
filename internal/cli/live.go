@@ -10,12 +10,10 @@ import (
 	"strings"
 	"time"
 
-	openai "github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 
 	"github.com/alnah/go-transcript/internal/audio"
 	"github.com/alnah/go-transcript/internal/config"
-	"github.com/alnah/go-transcript/internal/ffmpeg"
 	"github.com/alnah/go-transcript/internal/format"
 	"github.com/alnah/go-transcript/internal/interrupt"
 	"github.com/alnah/go-transcript/internal/lang"
@@ -25,7 +23,8 @@ import (
 )
 
 // LiveCmd creates the live command (record + transcribe in one step).
-func LiveCmd() *cobra.Command {
+// The env parameter provides injectable dependencies for testing.
+func LiveCmd(env *Env) *cobra.Command {
 	var (
 		durationStr string
 		output      string
@@ -67,7 +66,7 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 			}
 
 			// Note: output path resolution (including output-dir) is done in runLive.
-			return runLive(cmd.Context(), liveOptions{
+			return runLive(cmd.Context(), env, liveOptions{
 				duration:   duration,
 				output:     output,
 				template:   tmpl,
@@ -93,7 +92,7 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (default: transcript_<timestamp>.md)")
 	cmd.Flags().StringVarP(&tmpl, "template", "t", "", "Restructure template: brainstorm, meeting, lecture")
 	cmd.Flags().BoolVar(&diarize, "diarize", false, "Enable speaker identification")
-	cmd.Flags().IntVarP(&parallel, "parallel", "p", 10, "Max concurrent API requests (1-10)")
+	cmd.Flags().IntVarP(&parallel, "parallel", "p", transcribe.MaxRecommendedParallel, "Max concurrent API requests (1-10)")
 	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
 	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language for restructured text (requires --template)")
 
@@ -133,32 +132,33 @@ func audioOutputPath(mdPath string) string {
 
 // defaultLiveFilename generates a default output filename with timestamp.
 // Format: transcript_20260125_143052.md
-func defaultLiveFilename() string {
-	return fmt.Sprintf("transcript_%s.md", time.Now().Format("20060102_150405"))
+func defaultLiveFilename(now func() time.Time) string {
+	return fmt.Sprintf("transcript_%s.md", now().Format("20060102_150405"))
 }
 
-// liveEnv holds validated environment for live command execution.
-type liveEnv struct {
+// liveContext holds validated context for live command execution.
+// This is separate from cli.Env to hold command-specific resolved values.
+type liveContext struct {
 	apiKey     string
 	ffmpegPath string
 	audioPath  string // Final audio path (if --keep-audio)
 	parallel   int
 }
 
-// validateLiveEnv performs fail-fast validation before any I/O.
-func validateLiveEnv(ctx context.Context, opts liveOptions) (*liveEnv, error) {
+// validateLiveContext performs fail-fast validation before any I/O.
+func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*liveContext, error) {
 	// 1. API key present
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := env.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		return nil, fmt.Errorf("%w (set it with: export OPENAI_API_KEY=sk-...)", ErrAPIKeyMissing)
 	}
 
 	// 2. FFmpeg available (may auto-download)
-	ffmpegPath, err := ffmpeg.Resolve(ctx)
+	ffmpegPath, err := env.FFmpegResolver.Resolve(ctx)
 	if err != nil {
 		return nil, err
 	}
-	ffmpeg.CheckVersion(ctx, ffmpegPath)
+	env.FFmpegResolver.CheckVersion(ctx, ffmpegPath)
 
 	// 3. Template valid (if specified)
 	if opts.template != "" {
@@ -200,7 +200,7 @@ func validateLiveEnv(ctx context.Context, opts liveOptions) (*liveEnv, error) {
 		}
 	}
 
-	return &liveEnv{
+	return &liveContext{
 		apiKey:     apiKey,
 		ffmpegPath: ffmpegPath,
 		audioPath:  audioPath,
@@ -216,7 +216,7 @@ type liveRecordResult struct {
 }
 
 // liveRecordPhase executes the recording phase.
-func liveRecordPhase(ctx context.Context, env *liveEnv, opts liveOptions) (*liveRecordResult, error) {
+func liveRecordPhase(ctx context.Context, env *Env, lctx *liveContext, opts liveOptions) (*liveRecordResult, error) {
 	// Create temporary file for recording
 	tempDir, err := os.MkdirTemp("", "go-transcript-live-*")
 	if err != nil {
@@ -231,12 +231,12 @@ func liveRecordPhase(ctx context.Context, env *liveEnv, opts liveOptions) (*live
 	}
 
 	// Create recorder
-	recorder, err := createRecorder(ctx, env.ffmpegPath, opts.device, opts.loopback, opts.mix)
+	recorder, err := createRecorder(ctx, env, lctx.ffmpegPath, opts.device, opts.loopback, opts.mix)
 	if err != nil {
 		return result, err
 	}
 
-	fmt.Fprintf(os.Stderr, "Recording for %s... (press Ctrl+C to stop early)\n", format.DurationHuman(opts.duration))
+	fmt.Fprintf(env.Stderr, "Recording for %s... (press Ctrl+C to stop early)\n", format.DurationHuman(opts.duration))
 
 	// Record to temp file
 	recordErr := recorder.Record(ctx, opts.duration, tempAudioPath)
@@ -244,7 +244,7 @@ func liveRecordPhase(ctx context.Context, env *liveEnv, opts liveOptions) (*live
 	// Check for interrupt during recording
 	if ctx.Err() != nil {
 		if size, statErr := fileSize(tempAudioPath); statErr == nil && size > 0 {
-			fmt.Fprintf(os.Stderr, "\nRecording interrupted. Partial audio saved to: %s (%s)\n",
+			fmt.Fprintf(env.Stderr, "\nRecording interrupted. Partial audio saved to: %s (%s)\n",
 				tempAudioPath, format.Size(size))
 			result.cleanupTempDir = false // Keep temp dir for recovery
 		}
@@ -264,25 +264,25 @@ func liveRecordPhase(ctx context.Context, env *liveEnv, opts liveOptions) (*live
 		return result, fmt.Errorf("recording produced empty file (check your audio device)")
 	}
 
-	fmt.Fprintf(os.Stderr, "Recording complete: %s\n", format.Size(audioSize))
+	fmt.Fprintf(env.Stderr, "Recording complete: %s\n", format.Size(audioSize))
 
 	// Move audio to final location if --keep-audio
 	if opts.keepAudio {
-		if err := moveFile(tempAudioPath, env.audioPath); err != nil {
+		if err := moveFile(tempAudioPath, lctx.audioPath); err != nil {
 			return result, fmt.Errorf("failed to save audio file: %w", err)
 		}
-		result.audioPath = env.audioPath
-		fmt.Fprintf(os.Stderr, "Audio saved: %s\n", env.audioPath)
+		result.audioPath = lctx.audioPath
+		fmt.Fprintf(env.Stderr, "Audio saved: %s\n", lctx.audioPath)
 	}
 
 	return result, nil
 }
 
 // liveTranscribePhase executes chunking and transcription.
-func liveTranscribePhase(ctx context.Context, env *liveEnv, opts liveOptions, audioPath string) (string, error) {
-	fmt.Fprintln(os.Stderr, "Detecting silences...")
+func liveTranscribePhase(ctx context.Context, env *Env, lctx *liveContext, opts liveOptions, audioPath string) (string, error) {
+	fmt.Fprintln(env.Stderr, "Detecting silences...")
 
-	chunker, err := audio.NewSilenceChunker(env.ffmpegPath)
+	chunker, err := env.ChunkerFactory.NewSilenceChunker(lctx.ffmpegPath)
 	if err != nil {
 		return "", err
 	}
@@ -293,40 +293,39 @@ func liveTranscribePhase(ctx context.Context, env *liveEnv, opts liveOptions, au
 	}
 	defer func() {
 		if cleanupErr := audio.CleanupChunks(chunks); cleanupErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to cleanup chunks: %v\n", cleanupErr)
+			fmt.Fprintf(env.Stderr, "Warning: failed to cleanup chunks: %v\n", cleanupErr)
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "Chunking audio... %d chunks\n", len(chunks))
+	fmt.Fprintf(env.Stderr, "Chunking audio... %d chunks\n", len(chunks))
 
-	client := openai.NewClient(env.apiKey)
-	transcriber := transcribe.NewOpenAITranscriber(client)
+	transcriber := env.TranscriberFactory.NewTranscriber(lctx.apiKey)
 	transcribeOpts := transcribe.Options{
 		Diarize:  opts.diarize,
 		Language: opts.language,
 	}
 
-	fmt.Fprintln(os.Stderr, "Transcribing...")
+	fmt.Fprintln(env.Stderr, "Transcribing...")
 
-	results, err := transcribe.TranscribeAll(ctx, chunks, transcriber, transcribeOpts, env.parallel)
+	results, err := transcribe.TranscribeAll(ctx, chunks, transcriber, transcribeOpts, lctx.parallel)
 	if err != nil {
 		if opts.keepAudio {
-			fmt.Fprintf(os.Stderr, "\nTranscription failed. Audio is available at: %s\n", audioPath)
+			fmt.Fprintf(env.Stderr, "\nTranscription failed. Audio is available at: %s\n", audioPath)
 		}
 		return "", err
 	}
 
-	fmt.Fprintln(os.Stderr, "Transcription complete")
+	fmt.Fprintln(env.Stderr, "Transcription complete")
 	return strings.Join(results, "\n\n"), nil
 }
 
 // liveRestructurePhase optionally restructures the transcript.
-func liveRestructurePhase(ctx context.Context, env *liveEnv, opts liveOptions, transcript, audioPath string) (string, error) {
+func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts liveOptions, transcript, audioPath string) (string, error) {
 	if opts.template == "" {
 		return transcript, nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Restructuring with template '%s'...\n", opts.template)
+	fmt.Fprintf(env.Stderr, "Restructuring with template '%s'...\n", opts.template)
 
 	// Default output language to input language if not specified
 	effectiveOutputLang := opts.outputLang
@@ -334,14 +333,13 @@ func liveRestructurePhase(ctx context.Context, env *liveEnv, opts liveOptions, t
 		effectiveOutputLang = opts.language
 	}
 
-	client := openai.NewClient(env.apiKey)
-	restructurer := restructure.NewOpenAIRestructurer(client)
-	mrRestructurer := restructure.NewMapReduceRestructurer(restructurer,
+	restructurer := env.RestructurerFactory.NewRestructurer(lctx.apiKey)
+	mrRestructurer := env.RestructurerFactory.NewMapReduceRestructurer(restructurer,
 		restructure.WithMapReduceProgress(func(phase string, current, total int) {
 			if phase == "map" {
-				fmt.Fprintf(os.Stderr, "  Processing part %d/%d...\n", current, total)
+				fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)
 			} else {
-				fmt.Fprintln(os.Stderr, "  Merging parts...")
+				fmt.Fprintln(env.Stderr, "  Merging parts...")
 			}
 		}),
 	)
@@ -349,7 +347,7 @@ func liveRestructurePhase(ctx context.Context, env *liveEnv, opts liveOptions, t
 	result, _, err := mrRestructurer.Restructure(ctx, transcript, opts.template, effectiveOutputLang)
 	if err != nil {
 		if opts.keepAudio {
-			fmt.Fprintf(os.Stderr, "\nRestructuring failed. Audio is available at: %s\n", audioPath)
+			fmt.Fprintf(env.Stderr, "\nRestructuring failed. Audio is available at: %s\n", audioPath)
 		}
 		return "", err
 	}
@@ -358,7 +356,7 @@ func liveRestructurePhase(ctx context.Context, env *liveEnv, opts liveOptions, t
 }
 
 // liveWritePhase writes the final output atomically.
-func liveWritePhase(output, content string) error {
+func liveWritePhase(env *Env, output, content string) error {
 	// #nosec G302 G304 -- user-specified output file with standard permissions
 	f, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
@@ -381,35 +379,35 @@ func liveWritePhase(output, content string) error {
 		return writeErr
 	}
 
-	fmt.Fprintf(os.Stderr, "Done: %s\n", output)
+	fmt.Fprintf(env.Stderr, "Done: %s\n", output)
 	return nil
 }
 
 // runLive executes the live recording and transcription pipeline.
 // Supports graceful interrupt: first Ctrl+C stops recording and continues transcription,
 // second Ctrl+C within 2s aborts entirely.
-func runLive(parentCtx context.Context, opts liveOptions) error {
+func runLive(parentCtx context.Context, env *Env, opts liveOptions) error {
 	// Load config for output-dir.
-	cfg, err := config.Load()
+	cfg, err := env.ConfigLoader.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
+		fmt.Fprintf(env.Stderr, "Warning: failed to load config: %v\n", err)
 	}
 
 	// Resolve output path using config output-dir.
-	opts.output = config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultLiveFilename())
+	opts.output = config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultLiveFilename(env.Now))
 
 	// Set up interrupt handler for double Ctrl+C detection.
 	interruptHandler, ctx := interrupt.NewHandler(parentCtx)
 	defer interruptHandler.Stop()
 
 	// Validate environment (fail-fast)
-	env, err := validateLiveEnv(ctx, opts)
+	lctx, err := validateLiveContext(ctx, env, opts)
 	if err != nil {
 		return err
 	}
 
 	// Recording phase
-	recordResult, recordErr := liveRecordPhase(ctx, env, opts)
+	recordResult, recordErr := liveRecordPhase(ctx, env, lctx, opts)
 
 	// Set up cleanup for temp directory
 	if recordResult != nil && recordResult.cleanupTempDir && recordResult.tempDir != "" {
@@ -431,15 +429,15 @@ func runLive(parentCtx context.Context, opts liveOptions) error {
 				}
 
 				// Continue with transcription of partial recording
-				fmt.Fprintf(os.Stderr, "\nContinuing with partial recording (%s)...\n", format.Size(size))
+				fmt.Fprintf(env.Stderr, "\nContinuing with partial recording (%s)...\n", format.Size(size))
 
 				// Move audio to final location if --keep-audio
 				if opts.keepAudio {
-					if moveErr := moveFile(recordResult.audioPath, env.audioPath); moveErr != nil {
-						fmt.Fprintf(os.Stderr, "Warning: failed to save audio: %v\n", moveErr)
+					if moveErr := moveFile(recordResult.audioPath, lctx.audioPath); moveErr != nil {
+						fmt.Fprintf(env.Stderr, "Warning: failed to save audio: %v\n", moveErr)
 					} else {
-						recordResult.audioPath = env.audioPath
-						fmt.Fprintf(os.Stderr, "Audio saved: %s\n", env.audioPath)
+						recordResult.audioPath = lctx.audioPath
+						fmt.Fprintf(env.Stderr, "Audio saved: %s\n", lctx.audioPath)
 					}
 				}
 
@@ -447,32 +445,32 @@ func runLive(parentCtx context.Context, opts liveOptions) error {
 				transcribeCtx := context.Background()
 
 				// Continue to transcription
-				return runLiveTranscriptionPipeline(transcribeCtx, env, opts, recordResult.audioPath)
+				return runLiveTranscriptionPipeline(transcribeCtx, env, lctx, opts, recordResult.audioPath)
 			}
 		}
 		return recordErr
 	}
 
 	// Normal flow: recording completed successfully
-	return runLiveTranscriptionPipeline(ctx, env, opts, recordResult.audioPath)
+	return runLiveTranscriptionPipeline(ctx, env, lctx, opts, recordResult.audioPath)
 }
 
 // runLiveTranscriptionPipeline runs the transcription and restructuring phases.
-func runLiveTranscriptionPipeline(ctx context.Context, env *liveEnv, opts liveOptions, audioPath string) error {
+func runLiveTranscriptionPipeline(ctx context.Context, env *Env, lctx *liveContext, opts liveOptions, audioPath string) error {
 	// Transcription phase
-	transcript, err := liveTranscribePhase(ctx, env, opts, audioPath)
+	transcript, err := liveTranscribePhase(ctx, env, lctx, opts, audioPath)
 	if err != nil {
 		return err
 	}
 
 	// Restructure phase (optional)
-	finalOutput, err := liveRestructurePhase(ctx, env, opts, transcript, audioPath)
+	finalOutput, err := liveRestructurePhase(ctx, env, lctx, opts, transcript, audioPath)
 	if err != nil {
 		return err
 	}
 
 	// Write output
-	return liveWritePhase(opts.output, finalOutput)
+	return liveWritePhase(env, opts.output, finalOutput)
 }
 
 // moveFile moves a file from src to dst.

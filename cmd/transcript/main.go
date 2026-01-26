@@ -48,6 +48,9 @@ func main() {
 		syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	// Create the CLI environment with production defaults.
+	env := cli.DefaultEnv()
+
 	// Root command.
 	rootCmd := &cobra.Command{
 		Use:     "transcript",
@@ -59,10 +62,10 @@ func main() {
 	}
 
 	// Subcommands.
-	rootCmd.AddCommand(cli.RecordCmd())
-	rootCmd.AddCommand(cli.TranscribeCmd())
-	rootCmd.AddCommand(cli.LiveCmd())
-	rootCmd.AddCommand(cli.ConfigCmd())
+	rootCmd.AddCommand(cli.RecordCmd(env))
+	rootCmd.AddCommand(cli.TranscribeCmd(env))
+	rootCmd.AddCommand(cli.LiveCmd(env))
+	rootCmd.AddCommand(cli.ConfigCmd(env))
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)

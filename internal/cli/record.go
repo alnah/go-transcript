@@ -12,7 +12,6 @@ import (
 
 	"github.com/alnah/go-transcript/internal/audio"
 	"github.com/alnah/go-transcript/internal/config"
-	"github.com/alnah/go-transcript/internal/ffmpeg"
 	"github.com/alnah/go-transcript/internal/format"
 )
 
@@ -26,7 +25,8 @@ type recordOptions struct {
 }
 
 // RecordCmd creates the record command.
-func RecordCmd() *cobra.Command {
+// The env parameter provides injectable dependencies for testing.
+func RecordCmd(env *Env) *cobra.Command {
 	var (
 		durationStr string
 		output      string
@@ -64,7 +64,7 @@ Recording can be interrupted with Ctrl+C to stop early - the file will be proper
 				mix:      mix,
 			}
 
-			return runRecord(cmd.Context(), opts)
+			return runRecord(cmd.Context(), env, opts)
 		},
 	}
 
@@ -85,20 +85,20 @@ Recording can be interrupted with Ctrl+C to stop early - the file will be proper
 }
 
 // runRecord executes the recording with the given options.
-func runRecord(ctx context.Context, opts recordOptions) error {
+func runRecord(ctx context.Context, env *Env, opts recordOptions) error {
 	// Load config for output-dir.
-	cfg, err := config.Load()
+	cfg, err := env.ConfigLoader.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
+		fmt.Fprintf(env.Stderr, "Warning: failed to load config: %v\n", err)
 	}
 
 	// Resolve output path using config output-dir.
-	opts.output = config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultRecordingFilename())
+	opts.output = config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultRecordingFilename(env.Now))
 
 	// Warn if output extension is not .ogg.
 	ext := strings.ToLower(filepath.Ext(opts.output))
 	if ext != "" && ext != ".ogg" {
-		fmt.Fprintf(os.Stderr, "Warning: output will be OGG Vorbis format regardless of %s extension\n", ext)
+		fmt.Fprintf(env.Stderr, "Warning: output will be OGG Vorbis format regardless of %s extension\n", ext)
 	}
 
 	// Check output file doesn't already exist.
@@ -107,28 +107,28 @@ func runRecord(ctx context.Context, opts recordOptions) error {
 	}
 
 	// Resolve FFmpeg.
-	ffmpegPath, err := ffmpeg.Resolve(ctx)
+	ffmpegPath, err := env.FFmpegResolver.Resolve(ctx)
 	if err != nil {
 		return err
 	}
 
 	// Check FFmpeg version (warning only).
-	ffmpeg.CheckVersion(ctx, ffmpegPath)
+	env.FFmpegResolver.CheckVersion(ctx, ffmpegPath)
 
 	// Create the appropriate recorder.
-	recorder, err := createRecorder(ctx, ffmpegPath, opts.device, opts.loopback, opts.mix)
+	recorder, err := createRecorder(ctx, env, ffmpegPath, opts.device, opts.loopback, opts.mix)
 	if err != nil {
 		return err
 	}
 
 	// Print start message.
-	fmt.Fprintf(os.Stderr, "Recording for %s to %s... (press Ctrl+C to stop)\n", format.DurationHuman(opts.duration), opts.output)
+	fmt.Fprintf(env.Stderr, "Recording for %s to %s... (press Ctrl+C to stop)\n", format.DurationHuman(opts.duration), opts.output)
 
 	// Record.
 	if err := recorder.Record(ctx, opts.duration, opts.output); err != nil {
 		// Check if it was an interrupt - file may still be valid.
 		if ctx.Err() != nil {
-			fmt.Fprintln(os.Stderr, "Interrupted, finalizing...")
+			fmt.Fprintln(env.Stderr, "Interrupted, finalizing...")
 		} else {
 			return err
 		}
@@ -141,26 +141,26 @@ func runRecord(ctx context.Context, opts recordOptions) error {
 		return fmt.Errorf("recording failed: output file not created")
 	}
 
-	fmt.Fprintf(os.Stderr, "Recording complete: %s (%s)\n", opts.output, format.Size(size))
+	fmt.Fprintf(env.Stderr, "Recording complete: %s (%s)\n", opts.output, format.Size(size))
 	return nil
 }
 
 // createRecorder creates the appropriate recorder based on capture mode.
-func createRecorder(ctx context.Context, ffmpegPath, device string, loopback, mix bool) (audio.Recorder, error) {
+func createRecorder(ctx context.Context, env *Env, ffmpegPath, device string, loopback, mix bool) (audio.Recorder, error) {
 	switch {
 	case loopback:
-		return audio.NewFFmpegLoopbackRecorder(ctx, ffmpegPath)
+		return env.RecorderFactory.NewLoopbackRecorder(ctx, ffmpegPath)
 	case mix:
-		return audio.NewFFmpegMixRecorder(ctx, ffmpegPath, device)
+		return env.RecorderFactory.NewMixRecorder(ctx, ffmpegPath, device)
 	default:
-		return audio.NewFFmpegRecorder(ffmpegPath, device)
+		return env.RecorderFactory.NewRecorder(ffmpegPath, device)
 	}
 }
 
 // defaultRecordingFilename generates a default output filename with timestamp.
 // Format: recording_20260125_143052.ogg
-func defaultRecordingFilename() string {
-	return fmt.Sprintf("recording_%s.ogg", time.Now().Format("20060102_150405"))
+func defaultRecordingFilename(now func() time.Time) string {
+	return fmt.Sprintf("recording_%s.ogg", now().Format("20060102_150405"))
 }
 
 // fileSize returns the size of a file in bytes.
