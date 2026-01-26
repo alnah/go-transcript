@@ -542,6 +542,57 @@ func assertFileContains(t *testing.T, path, content string) {
 	}
 }
 
+// assertOggFile checks that the file at path is a valid OGG file.
+// Validates: file exists, has OGG magic bytes, and size is within expected range.
+func assertOggFile(t *testing.T, path string, minSize, maxSize int64) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Errorf("failed to stat file %s: %v", path, err)
+		return
+	}
+
+	size := info.Size()
+	if size < minSize {
+		t.Errorf("file %s too small: got %d bytes, want >= %d", path, size, minSize)
+		return
+	}
+	if maxSize > 0 && size > maxSize {
+		t.Errorf("file %s too large: got %d bytes, want <= %d", path, size, maxSize)
+		return
+	}
+
+	// Check OGG magic bytes: "OggS"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Errorf("failed to read file %s: %v", path, err)
+		return
+	}
+	if len(data) < 4 || string(data[:4]) != "OggS" {
+		t.Errorf("file %s is not a valid OGG file: missing magic bytes", path)
+	}
+}
+
+// assertFileSizeInRange checks that file size is within expected bounds.
+func assertFileSizeInRange(t *testing.T, path string, minSize, maxSize int64) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Errorf("failed to stat file %s: %v", path, err)
+		return
+	}
+
+	size := info.Size()
+	if size < minSize {
+		t.Errorf("file %s too small: got %d bytes, want >= %d", path, size, minSize)
+	}
+	if maxSize > 0 && size > maxSize {
+		t.Errorf("file %s too large: got %d bytes, want <= %d", path, size, maxSize)
+	}
+}
+
 // =============================================================================
 // OpenAI Error Helpers
 // =============================================================================
