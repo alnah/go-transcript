@@ -153,11 +153,12 @@ func (h *InterruptHandler) WaitForDecision(message string) InterruptBehavior {
 	// Wait for remaining time or abort
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	deadline := time.After(remaining)
+	deadline := time.NewTimer(remaining)
+	defer deadline.Stop()
 
 	for {
 		select {
-		case <-deadline:
+		case <-deadline.C:
 			return InterruptContinue
 		case <-ticker.C:
 			h.mu.Lock()
