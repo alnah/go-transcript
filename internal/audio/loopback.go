@@ -10,14 +10,20 @@ import (
 	"github.com/alnah/go-transcript/internal/ffmpeg"
 )
 
-// execCommandOutput is the function used to execute commands and capture output.
-// This variable can be replaced in tests to mock command execution.
-var execCommandOutput = execCommandOutputImpl
+// shellCommandRunner executes shell commands.
+type shellCommandRunner interface {
+	Output(ctx context.Context, name string, args ...string) ([]byte, error)
+}
 
-// execCommandOutputImpl is the real implementation of execCommandOutput.
-func execCommandOutputImpl(ctx context.Context, name string, args ...string) ([]byte, error) {
+// osShellRunner implements shellCommandRunner using os/exec.
+type osShellRunner struct{}
+
+func (osShellRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, name, args...).Output()
 }
+
+// defaultShellRunner is the default shell command runner.
+var defaultShellRunner shellCommandRunner = osShellRunner{}
 
 // CaptureMode defines what audio source to capture.
 type CaptureMode int
@@ -106,12 +112,17 @@ func detectLoopbackDarwin(ctx context.Context, ffmpegPath string) (*loopbackDevi
 // detectLoopbackLinux detects PulseAudio/PipeWire monitor device.
 // This is native on Linux - no additional driver needed.
 func detectLoopbackLinux(ctx context.Context) (*loopbackDevice, error) {
+	return detectLoopbackLinuxWithRunner(ctx, defaultShellRunner)
+}
+
+// detectLoopbackLinuxWithRunner is the testable version of detectLoopbackLinux.
+func detectLoopbackLinuxWithRunner(ctx context.Context, runner shellCommandRunner) (*loopbackDevice, error) {
 	// Try to get the default sink name from PulseAudio/PipeWire
 	// The monitor device is named "<sink-name>.monitor"
-	output, err := execCommandOutput(ctx, "pactl", "get-default-sink")
+	output, err := runner.Output(ctx, "pactl", "get-default-sink")
 	if err != nil {
 		// pactl not available, try checking for PipeWire
-		if _, pwErr := execCommandOutput(ctx, "pw-cli", "info", "0"); pwErr != nil {
+		if _, pwErr := runner.Output(ctx, "pw-cli", "info", "0"); pwErr != nil {
 			return nil, &loopbackError{
 				wrapped: ErrLoopbackNotFound,
 				help:    loopbackInstallInstructionsLinux(),

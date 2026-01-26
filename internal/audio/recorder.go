@@ -13,6 +13,9 @@ import (
 	"github.com/alnah/go-transcript/internal/ffmpeg"
 )
 
+// Compile-time interface implementation check.
+var _ Recorder = (*FFmpegRecorder)(nil)
+
 // Recorder records audio from an input device to a file.
 type Recorder interface {
 	Record(ctx context.Context, duration time.Duration, output string) error
@@ -40,6 +43,61 @@ type FFmpegRecorder struct {
 	device      string          // Empty string means auto-detect default device.
 	captureMode CaptureMode     // Microphone, loopback, or mix.
 	loopback    *loopbackDevice // Cached loopback device (for loopback/mix modes).
+
+	// Injectable dependencies (defaults to real implementations).
+	ffmpegRunner ffmpegRunner
+	pactlRunner  pactlRunner
+}
+
+// ffmpegRunner runs FFmpeg commands and returns output.
+type ffmpegRunner interface {
+	RunOutput(ctx context.Context, ffmpegPath string, args []string) (string, error)
+	RunGraceful(ctx context.Context, ffmpegPath string, args []string, gracefulTimeout time.Duration) error
+}
+
+// pactlRunner runs pactl for PulseAudio device discovery.
+type pactlRunner interface {
+	ListSources(ctx context.Context) (string, error)
+}
+
+// RecorderOption configures an FFmpegRecorder.
+type RecorderOption func(*FFmpegRecorder)
+
+// WithFFmpegRunner sets the FFmpeg command runner.
+func WithFFmpegRunner(r ffmpegRunner) RecorderOption {
+	return func(rec *FFmpegRecorder) {
+		rec.ffmpegRunner = r
+	}
+}
+
+// WithPactlRunner sets the pactl command runner.
+func WithPactlRunner(r pactlRunner) RecorderOption {
+	return func(rec *FFmpegRecorder) {
+		rec.pactlRunner = r
+	}
+}
+
+// defaultFFmpegRunner implements ffmpegRunner using the ffmpeg package.
+type defaultFFmpegRunner struct{}
+
+func (defaultFFmpegRunner) RunOutput(ctx context.Context, ffmpegPath string, args []string) (string, error) {
+	return ffmpeg.RunOutput(ctx, ffmpegPath, args)
+}
+
+func (defaultFFmpegRunner) RunGraceful(ctx context.Context, ffmpegPath string, args []string, gracefulTimeout time.Duration) error {
+	return ffmpeg.RunGraceful(ctx, ffmpegPath, args, gracefulTimeout)
+}
+
+// defaultPactlRunner implements pactlRunner using exec.Command.
+type defaultPactlRunner struct{}
+
+func (defaultPactlRunner) ListSources(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "pactl", "list", "sources", "short")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
 }
 
 // NewFFmpegRecorder creates a new FFmpegRecorder for microphone capture.
@@ -48,15 +106,21 @@ type FFmpegRecorder struct {
 //   - macOS: ":0" or ":DeviceName"
 //   - Linux: "default" or "hw:0"
 //   - Windows: "Microphone (Realtek High Definition Audio)"
-func NewFFmpegRecorder(ffmpegPath, device string) (*FFmpegRecorder, error) {
+func NewFFmpegRecorder(ffmpegPath, device string, opts ...RecorderOption) (*FFmpegRecorder, error) {
 	if ffmpegPath == "" {
 		return nil, fmt.Errorf("ffmpegPath cannot be empty: %w", ffmpeg.ErrNotFound)
 	}
-	return &FFmpegRecorder{
-		ffmpegPath:  ffmpegPath,
-		device:      device,
-		captureMode: CaptureMicrophone,
-	}, nil
+	rec := &FFmpegRecorder{
+		ffmpegPath:   ffmpegPath,
+		device:       device,
+		captureMode:  CaptureMicrophone,
+		ffmpegRunner: defaultFFmpegRunner{},
+		pactlRunner:  defaultPactlRunner{},
+	}
+	for _, opt := range opts {
+		opt(rec)
+	}
+	return rec, nil
 }
 
 // NewFFmpegLoopbackRecorder creates a recorder for system audio (loopback) capture.
@@ -140,7 +204,7 @@ func (r *FFmpegRecorder) recordMicrophone(ctx context.Context, duration time.Dur
 // inputArg is the FFmpeg -i argument (e.g., ":0", "anullsrc=r=16000:cl=mono").
 func (r *FFmpegRecorder) recordFromInput(ctx context.Context, inputFormat, inputArg string, duration time.Duration, output string) error {
 	args := buildRecordArgs(inputFormat, inputArg, duration, output)
-	return ffmpeg.RunGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
+	return r.ffmpegRunner.RunGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
 }
 
 // gracefulShutdownTimeout is the time to wait for FFmpeg to finalize the file.
@@ -199,7 +263,7 @@ func (r *FFmpegRecorder) recordMix(ctx context.Context, duration time.Duration, 
 	args = append(args, encodingArgs()...)
 	args = append(args, output)
 
-	return ffmpeg.RunGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
+	return r.ffmpegRunner.RunGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
 }
 
 // encodingArgs returns the standard encoding arguments for OGG Vorbis output.
@@ -252,7 +316,7 @@ func (r *FFmpegRecorder) listDevices(ctx context.Context) ([]string, error) {
 
 	// On Linux, try PulseAudio first for better device discovery.
 	if runtime.GOOS == "linux" {
-		if devices := listPulseDevices(ctx); len(devices) > 0 {
+		if devices := r.listPulseDevicesInternal(ctx); len(devices) > 0 {
 			return devices, nil
 		}
 		// Fall back to ALSA defaults.
@@ -260,7 +324,7 @@ func (r *FFmpegRecorder) listDevices(ctx context.Context) ([]string, error) {
 
 	args := listDevicesArgs(format)
 
-	stderr, err := ffmpeg.RunOutput(ctx, r.ffmpegPath, args)
+	stderr, err := r.ffmpegRunner.RunOutput(ctx, r.ffmpegPath, args)
 	if err != nil {
 		return nil, err
 	}
@@ -268,15 +332,13 @@ func (r *FFmpegRecorder) listDevices(ctx context.Context) ([]string, error) {
 	return parseDevices(format, stderr), nil
 }
 
-// listPulseDevices uses pactl to list PulseAudio sources (Linux).
-// Returns nil if pactl is not available or fails.
-func listPulseDevices(ctx context.Context) []string {
-	cmd := exec.CommandContext(ctx, "pactl", "list", "sources", "short")
-	output, err := cmd.Output()
+// listPulseDevicesInternal uses the injected pactlRunner to list PulseAudio sources.
+func (r *FFmpegRecorder) listPulseDevicesInternal(ctx context.Context) []string {
+	output, err := r.pactlRunner.ListSources(ctx)
 	if err != nil {
 		return nil
 	}
-	return parsePulseDevices(string(output))
+	return parsePulseDevices(output)
 }
 
 // inputFormat returns the FFmpeg input format for the current OS.
