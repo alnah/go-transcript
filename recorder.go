@@ -147,7 +147,7 @@ func buildRecordArgs(inputFormat, inputArg string, duration time.Duration, outpu
 	args := []string{
 		"-y",              // Overwrite output without asking.
 		"-f", inputFormat, // Input format.
-		"-i", inputArg,    // Input source.
+		"-i", inputArg, // Input source.
 		"-t", strconv.Itoa(int(duration.Seconds())), // Duration in seconds.
 	}
 	args = append(args, encodingArgs()...)
@@ -202,9 +202,9 @@ func (r *FFmpegRecorder) recordMix(ctx context.Context, duration time.Duration, 
 func encodingArgs() []string {
 	return []string{
 		"-c:a", "libvorbis", // OGG Vorbis codec.
-		"-ar", "16000",      // 16kHz sample rate.
-		"-ac", "1",          // Mono.
-		"-q:a", "2",         // Quality ~50kbps.
+		"-ar", "16000", // 16kHz sample rate.
+		"-ac", "1", // Mono.
+		"-q:a", "2", // Quality ~50kbps.
 	}
 }
 
