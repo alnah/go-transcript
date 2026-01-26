@@ -47,10 +47,11 @@ type RestructurerOption func(*OpenAIRestructurer)
 
 // Default configuration values.
 const (
-	defaultRestructureModel      = "gpt-4o-mini"
+	defaultRestructureModel      = "o4-mini"
 	defaultMaxInputTokens        = 100000
-	defaultCharsPerToken         = 3 // Conservative for French text
-	defaultRestructureMaxRetries = 3 // Fewer retries than transcriber (longer latency)
+	defaultMaxOutputTokens       = 100000 // o4-mini max output tokens
+	defaultCharsPerToken         = 3      // Conservative for French text
+	defaultRestructureMaxRetries = 3      // Fewer retries than transcriber (longer latency)
 	defaultRestructureBaseDelay  = 1 * time.Second
 	defaultRestructureMaxDelay   = 30 * time.Second
 )
@@ -139,7 +140,8 @@ func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templa
 
 	// 4. Build request
 	req := openai.ChatCompletionRequest{
-		Model: r.model,
+		Model:               r.model,
+		MaxCompletionTokens: defaultMaxOutputTokens,
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    openai.ChatMessageRoleSystem,
@@ -161,7 +163,8 @@ func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templa
 // Unlike Restructure, this does not resolve templates or check token limits.
 func (r *OpenAIRestructurer) restructureWithCustomPrompt(ctx context.Context, content, prompt string) (string, error) {
 	req := openai.ChatCompletionRequest{
-		Model: r.model,
+		Model:               r.model,
+		MaxCompletionTokens: defaultMaxOutputTokens,
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    openai.ChatMessageRoleSystem,

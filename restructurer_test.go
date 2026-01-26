@@ -104,8 +104,8 @@ func TestRestructure_RequestFormat(t *testing.T) {
 	}
 
 	// Verify model
-	if req.Model != "gpt-4o-mini" {
-		t.Errorf("expected model 'gpt-4o-mini', got %q", req.Model)
+	if req.Model != "o4-mini" {
+		t.Errorf("expected model 'o4-mini', got %q", req.Model)
 	}
 
 	// Verify temperature (deterministic output)
