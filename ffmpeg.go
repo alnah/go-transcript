@@ -246,6 +246,7 @@ func downloadAndInstall(ctx context.Context) error {
 
 	// Write version file
 	versionPath := filepath.Join(dir, versionFileName)
+	// #nosec G306 -- version file is non-sensitive metadata
 	if err := os.WriteFile(versionPath, []byte(ffmpegVersion), 0644); err != nil {
 		return fmt.Errorf("failed to write version file: %w", err)
 	}
@@ -294,6 +295,7 @@ func downloadBinary(ctx context.Context, info binaryInfo, destPath string) error
 
 	// Make executable on Unix
 	if runtime.GOOS != "windows" {
+		// #nosec G302 -- executable binary requires 0755
 		if err := os.Chmod(destPath, 0755); err != nil {
 			return fmt.Errorf("failed to make binary executable: %w", err)
 		}
