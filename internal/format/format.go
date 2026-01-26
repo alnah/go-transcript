@@ -17,6 +17,7 @@ func Duration(d time.Duration) string {
 }
 
 // DurationHuman formats a duration for human display.
+// Seconds are truncated when duration >= 1 minute.
 // Examples: "2h", "30m", "1h30m", "45s"
 func DurationHuman(d time.Duration) string {
 	if d >= time.Hour {
@@ -34,7 +35,8 @@ func DurationHuman(d time.Duration) string {
 }
 
 // Size formats a size in bytes for human display.
-// Uses MB for sizes >= 1MB, KB otherwise.
+// Uses MB for sizes >= 1MB, KB for sizes >= 1KB, bytes otherwise.
+// Sizes >= 1GB are displayed in MB (e.g., 10GB = "10240 MB").
 func Size(bytes int64) string {
 	const (
 		kb = 1024
@@ -45,6 +47,9 @@ func Size(bytes int64) string {
 	}
 	if bytes >= kb {
 		return fmt.Sprintf("%d KB", bytes/kb)
+	}
+	if bytes == 1 {
+		return "1 byte"
 	}
 	return fmt.Sprintf("%d bytes", bytes)
 }
