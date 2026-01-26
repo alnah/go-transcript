@@ -229,6 +229,7 @@ func (tc *TimeChunker) extractChunk(ctx context.Context, audioPath, chunkPath st
 		chunkPath,
 	}
 
+	// #nosec G204 -- ffmpegPath is resolved internally via resolveFFmpeg, not user input
 	cmd := exec.CommandContext(ctx, tc.ffmpegPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -531,6 +532,7 @@ func (sc *SilenceChunker) extractChunk(ctx context.Context, audioPath, chunkPath
 		chunkPath,
 	}
 
+	// #nosec G204 -- ffmpegPath is resolved internally via resolveFFmpeg, not user input
 	cmd := exec.CommandContext(ctx, sc.ffmpegPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
