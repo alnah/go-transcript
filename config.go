@@ -75,11 +75,11 @@ func LoadConfig() (Config, error) {
 // parseConfigFile reads a key=value config file.
 // Format: one key=value per line, # comments, empty lines ignored.
 func parseConfigFile(path string) (map[string]string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- config path is constructed from home dir
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	data := make(map[string]string)
 	scanner := bufio.NewScanner(f)
@@ -142,11 +142,12 @@ func SaveConfigValue(key, value string) error {
 
 // writeConfigFile writes the config map to a file.
 func writeConfigFile(path string, data map[string]string) error {
+	// #nosec G302 G304 -- config file with standard permissions, path from home dir
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("cannot write config file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	for key, value := range data {
 		if _, err := fmt.Fprintf(f, "%s=%s\n", key, value); err != nil {

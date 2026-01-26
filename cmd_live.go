@@ -349,6 +349,7 @@ func liveRestructurePhase(ctx context.Context, env *liveEnv, opts liveOptions, t
 
 // liveWritePhase writes the final output atomically.
 func liveWritePhase(output, content string) error {
+	// #nosec G302 G304 -- user-specified output file with standard permissions
 	f, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -358,7 +359,7 @@ func liveWritePhase(output, content string) error {
 	}
 
 	writeErr := func() error {
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		if _, err := f.WriteString(content); err != nil {
 			return fmt.Errorf("failed to write output: %w", err)
 		}
@@ -478,11 +479,11 @@ func moveFile(src, dst string) error {
 
 // copyFile copies a file from src to dst, then removes src.
 func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
+	srcFile, err := os.Open(src) // #nosec G304 -- src is internal temp file
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	// Get source file info for permissions
 	srcInfo, err := srcFile.Stat()
@@ -490,7 +491,7 @@ func copyFile(src, dst string) error {
 		return err
 	}
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, srcInfo.Mode())
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, srcInfo.Mode()) // #nosec G304 -- dst is user-specified output
 	if err != nil {
 		return err
 	}

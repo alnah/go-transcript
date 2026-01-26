@@ -237,6 +237,7 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diari
 	// === WRITE OUTPUT ===
 
 	// Use O_EXCL to atomically check existence and create file (avoids race condition)
+	// #nosec G302 G304 -- user-specified output file with standard permissions
 	f, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -247,7 +248,7 @@ func runTranscribe(cmd *cobra.Command, inputPath, output, template string, diari
 
 	// Ensure file is closed even on write error
 	writeErr := func() error {
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		if _, err := f.WriteString(finalOutput); err != nil {
 			return fmt.Errorf("failed to write output: %w", err)
 		}

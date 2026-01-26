@@ -126,6 +126,7 @@ func isInstalled() (bool, error) {
 	// Check version file matches current version
 	dir, _ := installDir()
 	versionPath := filepath.Join(dir, versionFileName)
+	// #nosec G304 -- path constructed from user home dir, not user input
 	data, err := os.ReadFile(versionPath)
 	if err != nil {
 		return false, nil // Version file missing = needs reinstall
@@ -327,11 +328,11 @@ func downloadToFile(ctx context.Context, url string, dest *os.File) error {
 
 // verifyChecksum computes the SHA256 of a file and compares to expected.
 func verifyChecksum(filePath, expectedSHA256 string) error {
-	f, err := os.Open(filePath)
+	f, err := os.Open(filePath) // #nosec G304 -- filePath is internal temp file
 	if err != nil {
 		return fmt.Errorf("cannot open file for checksum: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -349,17 +350,17 @@ func verifyChecksum(filePath, expectedSHA256 string) error {
 // decompressGzip decompresses a gzip file to a destination path.
 // Uses atomic write pattern.
 func decompressGzip(gzPath, destPath string) error {
-	gzFile, err := os.Open(gzPath)
+	gzFile, err := os.Open(gzPath) // #nosec G304 -- gzPath is internal temp file
 	if err != nil {
 		return fmt.Errorf("cannot open gzip file: %w", err)
 	}
-	defer gzFile.Close()
+	defer func() { _ = gzFile.Close() }()
 
 	gzReader, err := gzip.NewReader(gzFile)
 	if err != nil {
 		return fmt.Errorf("invalid gzip file: %w", err)
 	}
-	defer gzReader.Close()
+	defer func() { _ = gzReader.Close() }()
 
 	// Create temp file for atomic write
 	dir := filepath.Dir(destPath)
