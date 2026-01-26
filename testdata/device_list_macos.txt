@@ -1,7 +1,0 @@
-[AVFoundation indev @ 0x7f8e4c004a00] AVFoundation video devices:
-[AVFoundation indev @ 0x7f8e4c004a00] [0] FaceTime HD Camera
-[AVFoundation indev @ 0x7f8e4c004a00] [1] Capture screen 0
-[AVFoundation indev @ 0x7f8e4c004a00] AVFoundation audio devices:
-[AVFoundation indev @ 0x7f8e4c004a00] [0] MacBook Pro Microphone
-[AVFoundation indev @ 0x7f8e4c004a00] [1] BlackHole 2ch
-[AVFoundation indev @ 0x7f8e4c004a00] [2] External Microphone
