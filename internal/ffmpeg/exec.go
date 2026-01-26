@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"sync"
 	"time"
 )
-
-// gracefulShutdownTimeout is the time to wait for FFmpeg to finalize the file
-// after sending 'q' to stdin before forcefully killing the process.
-const gracefulShutdownTimeout = 5 * time.Second
 
 // RunGraceful executes FFmpeg with graceful shutdown on context cancellation.
 // When ctx is canceled, it sends 'q' to stdin to allow FFmpeg to finalize the file
@@ -23,7 +20,7 @@ func RunGraceful(ctx context.Context, ffmpegPath string, args []string, timeout 
 	// Create stdin pipe for graceful shutdown via 'q' command.
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return fmt.Errorf("failed to create stdin pipe: %w", err)
+		return fmt.Errorf("create stdin pipe: %w", err)
 	}
 
 	// Capture stderr for error messages (FFmpeg writes most output to stderr).
@@ -31,7 +28,8 @@ func RunGraceful(ctx context.Context, ffmpegPath string, args []string, timeout 
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start ffmpeg: %w", err)
+		_ = stdin.Close() // Clean up pipe on start failure
+		return fmt.Errorf("start ffmpeg: %w", err)
 	}
 
 	// Channel to receive the result of cmd.Wait().
@@ -44,7 +42,7 @@ func RunGraceful(ctx context.Context, ffmpegPath string, args []string, timeout 
 	case err := <-done:
 		// FFmpeg completed normally (or with error).
 		if err != nil {
-			return fmt.Errorf("ffmpeg failed: %w\nOutput: %s", err, stderr.String())
+			return fmt.Errorf("ffmpeg: %w\nOutput: %s", err, stderr.String())
 		}
 		return nil
 
@@ -74,27 +72,79 @@ func RunGraceful(ctx context.Context, ffmpegPath string, args []string, timeout 
 	}
 }
 
-// RunOutputFunc is the function signature for running FFmpeg and capturing output.
-// This variable can be replaced in tests to mock FFmpeg behavior.
-var RunOutputFunc = runOutputImpl
+// ---------------------------------------------------------------------------
+// Executor - testable FFmpeg execution with dependency injection
+// ---------------------------------------------------------------------------
+
+// runOutputFn is the function type for running a command and capturing output.
+type runOutputFn func(ctx context.Context, path string, args []string) (string, error)
+
+// Executor runs FFmpeg commands with injectable dependencies.
+type Executor struct {
+	runOutput runOutputFn
+}
+
+// ExecutorOption configures an Executor.
+type ExecutorOption func(*Executor)
+
+// WithRunOutput sets a custom runOutput function (for testing).
+func WithRunOutput(fn runOutputFn) ExecutorOption {
+	return func(e *Executor) { e.runOutput = fn }
+}
+
+// NewExecutor creates an Executor with the given options.
+func NewExecutor(opts ...ExecutorOption) *Executor {
+	e := &Executor{
+		runOutput: defaultRunOutput,
+	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
 
 // RunOutput executes FFmpeg and captures its stderr output.
 // FFmpeg writes most diagnostic output (including device lists, probe info) to stderr.
-// This is useful for commands like -list_devices, -i with probe, silencedetect filter, etc.
-func RunOutput(ctx context.Context, ffmpegPath string, args []string) (string, error) {
-	return RunOutputFunc(ctx, ffmpegPath, args)
+func (e *Executor) RunOutput(ctx context.Context, ffmpegPath string, args []string) (string, error) {
+	return e.runOutput(ctx, ffmpegPath, args)
 }
 
-// runOutputImpl is the real implementation of RunOutput.
-func runOutputImpl(ctx context.Context, ffmpegPath string, args []string) (string, error) {
+// defaultRunOutput is the production implementation.
+// Returns stderr output even when the command fails, since FFmpeg often returns
+// non-zero exit codes for valid operations (e.g., -list_devices returns 1).
+// The error is returned for debugging but callers typically ignore it.
+func defaultRunOutput(ctx context.Context, ffmpegPath string, args []string) (string, error) {
 	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	// FFmpeg -list_devices returns exit code 1, so we ignore the error
-	// and just return the stderr output for parsing.
-	_ = cmd.Run()
+	err := cmd.Run()
 
-	return stderr.String(), nil
+	// Return stderr output regardless of error - it contains the useful data.
+	// FFmpeg writes diagnostic output to stderr even on "failure".
+	return stderr.String(), err
+}
+
+// ---------------------------------------------------------------------------
+// Package-level functions - backward compatible facade
+// ---------------------------------------------------------------------------
+
+var (
+	defaultExecutor     *Executor
+	defaultExecutorOnce sync.Once
+)
+
+// getDefaultExecutor returns the lazily-initialized default executor.
+func getDefaultExecutor() *Executor {
+	defaultExecutorOnce.Do(func() {
+		defaultExecutor = NewExecutor()
+	})
+	return defaultExecutor
+}
+
+// RunOutput executes FFmpeg and captures its stderr output.
+// This is a backward-compatible facade for the Executor.RunOutput method.
+func RunOutput(ctx context.Context, ffmpegPath string, args []string) (string, error) {
+	return getDefaultExecutor().RunOutput(ctx, ffmpegPath, args)
 }
