@@ -67,6 +67,10 @@ const (
 	// OpenAI limit is 25MB; we use 20MB for VBR safety margin.
 	defaultMaxChunkSize = 20 * 1024 * 1024
 
+	// defaultMaxChunkDuration is the maximum duration per chunk.
+	// Shorter chunks (5min) maximize parallelism and reduce OpenAI truncation risk.
+	defaultMaxChunkDuration = 5 * time.Minute
+
 	// defaultOverlap is the overlap duration for time-based chunking.
 	// 30s ensures words at chunk boundaries are captured in at least one chunk.
 	defaultOverlap = 30 * time.Second
@@ -537,12 +541,17 @@ func (sc *SilenceChunker) selectCutPoints(silences []silencePoint, bytesPerSecon
 
 // extractChunks creates chunk files at the specified cut points.
 // If extraction fails partway through, already-created chunk files are cleaned up.
+// Segments exceeding defaultMaxChunkDuration are automatically subdivided.
 func (sc *SilenceChunker) extractChunks(ctx context.Context, audioPath, tempDir string, cutPoints []time.Duration, totalDuration time.Duration) ([]Chunk, error) {
 	// Build segment boundaries: [0, cut1, cut2, ..., totalDuration].
 	boundaries := make([]time.Duration, 0, len(cutPoints)+2)
 	boundaries = append(boundaries, 0)
 	boundaries = append(boundaries, cutPoints...)
 	boundaries = append(boundaries, totalDuration)
+
+	// Expand boundaries to ensure no segment exceeds maxChunkDuration.
+	// This handles cases where silence detection finds few/no silences.
+	boundaries = expandBoundariesForDuration(boundaries, defaultMaxChunkDuration)
 
 	chunks := make([]Chunk, 0, len(boundaries)-1)
 	for i := range len(boundaries) - 1 {
@@ -567,6 +576,38 @@ func (sc *SilenceChunker) extractChunks(ctx context.Context, audioPath, tempDir 
 	}
 
 	return chunks, nil
+}
+
+// expandBoundariesForDuration subdivides segments that exceed maxDuration.
+// Maintains original boundaries and adds intermediate points as needed.
+func expandBoundariesForDuration(boundaries []time.Duration, maxDuration time.Duration) []time.Duration {
+	if len(boundaries) < 2 {
+		return boundaries
+	}
+
+	expanded := make([]time.Duration, 0, len(boundaries))
+	for i := 0; i < len(boundaries)-1; i++ {
+		start := boundaries[i]
+		end := boundaries[i+1]
+		expanded = append(expanded, start)
+
+		// If segment exceeds max duration, subdivide it
+		segmentDuration := end - start
+		if segmentDuration > maxDuration {
+			// Calculate number of sub-segments needed
+			numSegments := int((segmentDuration + maxDuration - 1) / maxDuration) // ceiling division
+			subDuration := segmentDuration / time.Duration(numSegments)
+
+			// Add intermediate boundaries
+			for j := 1; j < numSegments; j++ {
+				expanded = append(expanded, start+subDuration*time.Duration(j))
+			}
+		}
+	}
+	// Add final boundary
+	expanded = append(expanded, boundaries[len(boundaries)-1])
+
+	return expanded
 }
 
 // extractChunk extracts a segment from audioPath to chunkPath.

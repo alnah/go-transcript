@@ -706,6 +706,84 @@ func TestTrimTrailingSilence(t *testing.T) {
 	}
 }
 
+func TestExpandBoundariesForDuration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		boundaries  []time.Duration
+		maxDuration time.Duration
+		want        []time.Duration
+	}{
+		{
+			name:        "empty_boundaries",
+			boundaries:  nil,
+			maxDuration: 20 * time.Minute,
+			want:        nil,
+		},
+		{
+			name:        "single_boundary",
+			boundaries:  []time.Duration{0},
+			maxDuration: 20 * time.Minute,
+			want:        []time.Duration{0},
+		},
+		{
+			name:        "no_expansion_needed",
+			boundaries:  []time.Duration{0, 15 * time.Minute, 30 * time.Minute},
+			maxDuration: 20 * time.Minute,
+			want:        []time.Duration{0, 15 * time.Minute, 30 * time.Minute},
+		},
+		{
+			name:        "single_segment_needs_split",
+			boundaries:  []time.Duration{0, 45 * time.Minute},
+			maxDuration: 20 * time.Minute,
+			want:        []time.Duration{0, 15 * time.Minute, 30 * time.Minute, 45 * time.Minute}, // Split into 3x15min
+		},
+		{
+			name:        "exact_double_duration",
+			boundaries:  []time.Duration{0, 40 * time.Minute},
+			maxDuration: 20 * time.Minute,
+			want:        []time.Duration{0, 20 * time.Minute, 40 * time.Minute}, // Split into 2x20min
+		},
+		{
+			name:        "mixed_segments",
+			boundaries:  []time.Duration{0, 10 * time.Minute, 55 * time.Minute, 60 * time.Minute},
+			maxDuration: 20 * time.Minute,
+			want: []time.Duration{
+				0,
+				10 * time.Minute,                // First segment (10min) unchanged
+				10*time.Minute + 15*time.Minute, // 25min - split 45min segment into 3
+				10*time.Minute + 30*time.Minute, // 40min
+				55 * time.Minute,                // End of second segment
+				60 * time.Minute,                // Last segment (5min) unchanged
+			},
+		},
+		{
+			name:        "large_segment_many_splits",
+			boundaries:  []time.Duration{0, 100 * time.Minute},
+			maxDuration: 20 * time.Minute,
+			want:        []time.Duration{0, 20 * time.Minute, 40 * time.Minute, 60 * time.Minute, 80 * time.Minute, 100 * time.Minute},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := expandBoundariesForDuration(tt.boundaries, tt.maxDuration)
+
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d boundaries, want %d: got=%v want=%v", len(got), len(tt.want), got, tt.want)
+			}
+
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("boundary %d: got %v, want %v", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 // =============================================================================
 // Group E: Mock FFmpeg tests (requires strict mock control)
 // =============================================================================
