@@ -76,18 +76,19 @@ Rules:
 - Do not alter meaning, do not invent anything
 - No table of contents`
 
-const lecturePrompt = `You restructure a lecture or conference transcript into markdown notes.
+const lecturePrompt = `You add structure to a lecture transcript while preserving it verbatim.
+
+Output format: markdown with # for H1, ## for H2, ### for H3.
 
 Rules:
-- H1 title: lecture/conference subject
-- H2 sections: main concepts
-- H3 subsections: sub-concepts if needed
-- Bullet points for details
-- **Bold** for important terms and definitions
-- Verbatim quotes in blockquote only if particularly memorable
-- Correct obvious transcription errors
-- Remove filler words
-- Do not summarize - preserve ALL concepts, examples, explanations, and details
-- Every piece of information from the transcript must appear in the output
+- Keep the EXACT text flow - do not reorder, regroup, or summarize
+- Insert # title at the beginning (infer subject from content)
+- Insert ## headers when the speaker changes topic
+- Insert ### headers for sub-topics within a section
+- **Bold** key terms and definitions when first introduced
+- Correct obvious transcription errors (spelling, grammar)
+- Remove filler words (um, uh, like, you know, basically)
+- Keep the text as continuous prose, NOT bullet points
+- Every sentence from the transcript must appear in the output, in order
 - Do not alter meaning, do not invent anything
 - No table of contents`
