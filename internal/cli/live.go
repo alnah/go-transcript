@@ -37,6 +37,7 @@ func LiveCmd(env *Env) *cobra.Command {
 		mix         bool
 		language    string
 		outputLang  string
+		provider    string
 	)
 
 	cmd := &cobra.Command{
@@ -48,13 +49,17 @@ This command combines 'record' and 'transcribe' for convenience.
 The audio is recorded to a temporary file, transcribed, and optionally
 restructured using a template. Use --keep-audio to preserve the recording.
 
+Transcription always uses OpenAI. Restructuring (--template) uses OpenAI by default,
+or DeepSeek with --provider deepseek.
+
 Recording can be interrupted with Ctrl+C to stop early and continue transcription.
 Press Ctrl+C twice within 2 seconds to abort entirely.`,
 		Example: `  transcript live -d 2h -o ideas.md -t brainstorm
   transcript live -d 1h -t meeting --diarize --keep-audio
   transcript live -d 1h --mix -t meeting     # Record video call with both sides
   transcript live -d 30m -l en -t meeting    # English audio, English output
-  transcript live -d 1h -l fr --output-lang en -t brainstorm  # French audio, English output`,
+  transcript live -d 1h -l fr --output-lang en -t brainstorm  # French audio, English output
+  transcript live -d 1h -t meeting --provider deepseek  # Use DeepSeek for restructuring`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Parse duration.
 			duration, err := time.ParseDuration(durationStr)
@@ -78,6 +83,7 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 				mix:        mix,
 				language:   language,
 				outputLang: outputLang,
+				provider:   provider,
 			})
 		},
 	}
@@ -95,9 +101,10 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 	cmd.Flags().IntVarP(&parallel, "parallel", "p", transcribe.MaxRecommendedParallel, "Max concurrent API requests (1-10)")
 	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
 	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language for restructured text (requires --template)")
+	cmd.Flags().StringVar(&provider, "provider", ProviderOpenAI, "LLM provider for restructuring: openai, deepseek")
 
 	// Live-specific flags.
-	cmd.Flags().BoolVar(&keepAudio, "keep-audio", false, "Keep the audio file after transcription")
+	cmd.Flags().BoolVarP(&keepAudio, "keep-audio", "k", false, "Keep the audio file after transcription")
 
 	// Duration is required.
 	_ = cmd.MarkFlagRequired("duration")
@@ -121,6 +128,7 @@ type liveOptions struct {
 	mix        bool
 	language   string // Audio input language (ISO 639-1)
 	outputLang string // Output language for restructuring
+	provider   string // LLM provider for restructuring (deepseek or openai)
 }
 
 // audioOutputPath derives the audio file path from the markdown output path.
@@ -139,35 +147,56 @@ func defaultLiveFilename(now func() time.Time) string {
 // liveContext holds validated context for live command execution.
 // This is separate from cli.Env to hold command-specific resolved values.
 type liveContext struct {
-	apiKey     string
-	ffmpegPath string
-	audioPath  string // Final audio path (if --keep-audio)
-	parallel   int
+	openaiKey           string // OpenAI API key (always needed for transcription)
+	restructureAPIKey   string // API key for restructuring (depends on provider)
+	restructureProvider string // LLM provider for restructuring
+	ffmpegPath          string
+	audioPath           string // Final audio path (if --keep-audio)
+	parallel            int
 }
 
 // validateLiveContext performs fail-fast validation before any I/O.
 func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*liveContext, error) {
-	// 1. API key present
-	apiKey := env.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("%w (set it with: export OPENAI_API_KEY=sk-...)", ErrAPIKeyMissing)
+	// 1. Provider validation
+	if opts.provider != ProviderDeepSeek && opts.provider != ProviderOpenAI {
+		return nil, ErrUnsupportedProvider
 	}
 
-	// 2. FFmpeg available (may auto-download)
+	// 2. OpenAI API key present (always needed for transcription)
+	openaiKey := env.Getenv(EnvOpenAIAPIKey)
+	if openaiKey == "" {
+		return nil, fmt.Errorf("%w (set it with: export %s=sk-...)", ErrAPIKeyMissing, EnvOpenAIAPIKey)
+	}
+
+	// 3. Restructuring API key (only if template specified)
+	var restructureAPIKey string
+	if opts.template != "" {
+		switch opts.provider {
+		case ProviderDeepSeek:
+			restructureAPIKey = env.Getenv(EnvDeepSeekAPIKey)
+			if restructureAPIKey == "" {
+				return nil, fmt.Errorf("%w (set it with: export %s=sk-...)", ErrDeepSeekKeyMissing, EnvDeepSeekAPIKey)
+			}
+		case ProviderOpenAI:
+			restructureAPIKey = openaiKey // Reuse OpenAI key
+		}
+	}
+
+	// 4. FFmpeg available (may auto-download)
 	ffmpegPath, err := env.FFmpegResolver.Resolve(ctx)
 	if err != nil {
 		return nil, err
 	}
 	env.FFmpegResolver.CheckVersion(ctx, ffmpegPath)
 
-	// 3. Template valid (if specified)
+	// 5. Template valid (if specified)
 	if opts.template != "" {
 		if _, err := template.Get(opts.template); err != nil {
 			return nil, err
 		}
 	}
 
-	// 4. Language validation
+	// 6. Language validation
 	if err := lang.Validate(opts.language); err != nil {
 		return nil, err
 	}
@@ -175,17 +204,17 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 		return nil, err
 	}
 
-	// 5. Output language requires template
+	// 7. Output language requires template
 	if opts.outputLang != "" && opts.template == "" {
 		return nil, fmt.Errorf("--output-lang requires --template (raw transcripts use the audio's language)")
 	}
 
-	// 6. Output file doesn't exist
+	// 8. Output file doesn't exist
 	if _, err := os.Stat(opts.output); err == nil {
 		return nil, fmt.Errorf("output file already exists: %s: %w", opts.output, ErrOutputExists)
 	}
 
-	// 7. Audio output path doesn't exist (if --keep-audio)
+	// 9. Audio output path doesn't exist (if --keep-audio)
 	audioPath := audioOutputPath(opts.output)
 	if opts.keepAudio {
 		if _, err := os.Stat(audioPath); err == nil {
@@ -193,7 +222,7 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 		}
 	}
 
-	// 8. Loopback device available (if needed)
+	// 10. Loopback device available (if needed)
 	if opts.loopback || opts.mix {
 		if _, err := audio.DetectLoopbackDevice(ctx, ffmpegPath); err != nil {
 			return nil, err
@@ -201,10 +230,12 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 	}
 
 	return &liveContext{
-		apiKey:     apiKey,
-		ffmpegPath: ffmpegPath,
-		audioPath:  audioPath,
-		parallel:   clampParallel(opts.parallel),
+		openaiKey:           openaiKey,
+		restructureAPIKey:   restructureAPIKey,
+		restructureProvider: opts.provider,
+		ffmpegPath:          ffmpegPath,
+		audioPath:           audioPath,
+		parallel:            clampParallel(opts.parallel),
 	}, nil
 }
 
@@ -299,7 +330,7 @@ func liveTranscribePhase(ctx context.Context, env *Env, lctx *liveContext, opts 
 
 	fmt.Fprintf(env.Stderr, "Chunking audio... %d chunks\n", len(chunks))
 
-	transcriber := env.TranscriberFactory.NewTranscriber(lctx.apiKey)
+	transcriber := env.TranscriberFactory.NewTranscriber(lctx.openaiKey)
 	transcribeOpts := transcribe.Options{
 		Diarize:  opts.diarize,
 		Language: opts.language,
@@ -325,7 +356,7 @@ func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts
 		return transcript, nil
 	}
 
-	fmt.Fprintf(env.Stderr, "Restructuring with template '%s'...\n", opts.template)
+	fmt.Fprintf(env.Stderr, "Restructuring with template '%s' (provider: %s)...\n", opts.template, lctx.restructureProvider)
 
 	// Default output language to input language if not specified
 	effectiveOutputLang := opts.outputLang
@@ -333,7 +364,7 @@ func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts
 		effectiveOutputLang = opts.language
 	}
 
-	mrRestructurer := env.RestructurerFactory.NewMapReducer(lctx.apiKey,
+	mrRestructurer, err := env.RestructurerFactory.NewMapReducer(lctx.restructureProvider, lctx.restructureAPIKey,
 		restructure.WithMapReduceProgress(func(phase string, current, total int) {
 			if phase == "map" {
 				fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)
@@ -342,6 +373,9 @@ func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts
 			}
 		}),
 	)
+	if err != nil {
+		return "", err
+	}
 
 	result, _, err := mrRestructurer.Restructure(ctx, transcript, opts.template, effectiveOutputLang)
 	if err != nil {
