@@ -32,7 +32,7 @@ test: ## Run unit tests
 test-integration: ## Run integration tests (requires FFmpeg)
 	go test -v -tags=integration ./...
 
-test-e2e: ## Run E2E tests (requires OPENAI_API_KEY + FFmpeg)
+test-e2e: ## Run E2E tests (requires OPENAI_API_KEY + DEEPSEEK_API_KEY + FFmpeg)
 	go test -v -tags=e2e ./...
 
 test-all: ## Run all tests (unit + integration + e2e)
