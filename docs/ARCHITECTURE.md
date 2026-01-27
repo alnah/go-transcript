@@ -14,13 +14,13 @@
               │                  │                  │
               ▼                  ▼                  ▼
            ┌──────────────────────────────────────────┐
-           │                   Env                     │
-           │  (Dependency Injection Container)         │
-           │  - FFmpegResolver                         │
-           │  - TranscriberFactory                     │
-           │  - RestructurerFactory                    │
-           │  - ChunkerFactory                         │
-           │  - RecorderFactory                        │
+           │                   Env                    │
+           │  (Dependency Injection Container)        │
+           │  - FFmpegResolver                        │
+           │  - TranscriberFactory                    │
+           │  - RestructurerFactory                   │
+           │  - ChunkerFactory                        │
+           │  - RecorderFactory                       │
            └──────────────────────────────────────────┘
                     │              │              │
                     ▼              ▼              ▼
@@ -111,17 +111,17 @@ env := cli.NewEnv(
 ## Multi-Provider Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                   RestructurerFactory                        │
-│                                                              │
-│   NewMapReducer(provider, apiKey, opts...)                   │
-│         │                                                    │
-│         ├── "deepseek" ──▶ DeepSeekRestructurer              │
-│         │                  (internal/restructure/deepseek.go)│
-│         │                                                    │
-│         └── "openai" ───▶ OpenAIRestructurer                 │
-│                           (internal/restructure/restructurer.go)│
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                      RestructurerFactory                         │
+│                                                                  │
+│   NewMapReducer(provider, apiKey, opts...)                       │
+│         │                                                        │
+│         ├── "deepseek" ──▶ DeepSeekRestructurer                  │
+│         │                  (internal/restructure/deepseek.go)    │
+│         │                                                        │
+│         └── "openai" ───▶ OpenAIRestructurer                     │
+│                           (internal/restructure/restructurer.go) │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 - **Provider selection** - Via `--provider` flag (default: deepseek)
@@ -133,21 +133,21 @@ env := cli.NewEnv(
 ## Audio Recording
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    RecorderFactory                           │
-│                                                              │
-│   NewRecorder(ffmpegPath, device)      ──▶ Microphone        │
-│   NewLoopbackRecorder(ctx, ffmpegPath) ──▶ System audio      │
-│   NewMixRecorder(ctx, ffmpegPath, mic) ──▶ Both mixed        │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    RecorderFactory                       │
+│                                                          │
+│   NewRecorder(ffmpegPath, device)      ──▶ Microphone    │
+│   NewLoopbackRecorder(ctx, ffmpegPath) ──▶ System audio  │
+│   NewMixRecorder(ctx, ffmpegPath, mic) ──▶ Both mixed    │
+└──────────────────────────────────────────────────────────┘
          │
          ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    FFmpeg Process                            │
-│                                                              │
-│   Output: OGG Vorbis (16kHz mono, ~50kbps)                   │
-│   Optimized for voice, respects OpenAI's 25MB limit          │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    FFmpeg Process                        │
+│                                                          │
+│   Output: OGG Vorbis (16kHz mono, ~50kbps)               │
+│   Optimized for voice, respects OpenAI's 25MB limit      │
+└──────────────────────────────────────────────────────────┘
 ```
 
 Platform-specific device detection:
@@ -160,18 +160,18 @@ Platform-specific device detection:
 ## Chunking Strategy
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                 Silence-Based Chunking                       │
-│                                                              │
-│   Audio ──▶ FFmpeg silencedetect ──▶ Split at pauses         │
-│                                                              │
-│   Constraints:                                               │
-│   - Max chunk size: 25MB (OpenAI limit)                      │
-│   - Min silence: 0.5s                                        │
-│   - Silence threshold: -30dB                                 │
-│                                                              │
-│   Fallback: Force split at size limit if no silence found    │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                 Silence-Based Chunking                    │
+│                                                           │
+│   Audio ──▶ FFmpeg silencedetect ──▶ Split at pauses      │
+│                                                           │
+│   Constraints:                                            │
+│   - Max chunk size: 25MB (OpenAI limit)                   │
+│   - Min silence: 0.5s                                     │
+│   - Silence threshold: -30dB                              │
+│                                                           │
+│   Fallback: Force split at size limit if no silence found │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -179,21 +179,21 @@ Platform-specific device detection:
 ## Transcription Pipeline
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                  Parallel Transcription                        │
-│                                                                │
-│   chunks[]  ──▶  Worker Pool (1-10)  ──▶  results[]            │
-│                       │                                        │
-│                       ▼                                        │
-│              ┌─────────────────┐                               │
-│              │  OpenAI API     │                               │
-│              │  - Transcribe   │                               │
-│              │  - Diarization  │                               │
-│              └─────────────────┘                               │
-│                                                                │
-│   Retry: Exponential backoff for rate limits                   │
-│   Error: Partial results preserved on failure                  │
-└───────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                  Parallel Transcription                    │
+│                                                            │
+│   chunks[]  ──▶  Worker Pool (1-10)  ──▶  results[]        │
+│                       │                                    │
+│                       ▼                                    │
+│              ┌─────────────────┐                           │
+│              │  OpenAI API     │                           │
+│              │  - Transcribe   │                           │
+│              │  - Diarization  │                           │
+│              └─────────────────┘                           │
+│                                                            │
+│   Retry: Exponential backoff for rate limits               │
+│   Error: Partial results preserved on failure              │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -203,24 +203,24 @@ Platform-specific device detection:
 For long transcripts that exceed token limits:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    MapReduce Pattern                         │
-│                                                              │
-│   Transcript ──▶ Split into parts ──▶ Map (parallel)         │
-│                                            │                 │
-│                                            ▼                 │
-│                              ┌──────────────────────┐        │
-│                              │  Part 1 → Summary 1  │        │
-│                              │  Part 2 → Summary 2  │        │
-│                              │  Part N → Summary N  │        │
-│                              └──────────────────────┘        │
-│                                            │                 │
-│                                            ▼                 │
-│                                    Reduce (merge)            │
-│                                            │                 │
-│                                            ▼                 │
-│                                   Final Markdown             │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    MapReduce Pattern                     │
+│                                                          │
+│   Transcript ──▶ Split into parts ──▶ Map (parallel)     │
+│                                            │             │
+│                                            ▼             │
+│                              ┌──────────────────────┐    │
+│                              │  Part 1 → Summary 1  │    │
+│                              │  Part 2 → Summary 2  │    │
+│                              │  Part N → Summary N  │    │
+│                              └──────────────────────┘    │
+│                                            │             │
+│                                            ▼             │
+│                                    Reduce (merge)        │
+│                                            │             │
+│                                            ▼             │
+│                                   Final Markdown         │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -257,22 +257,22 @@ For long transcripts that exceed token limits:
 ## Error Handling
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Error Types                             │
-├─────────────────────────────────────────────────────────────┤
-│  cli.ErrAPIKeyMissing       - OPENAI_API_KEY not set         │
-│  cli.ErrDeepSeekKeyMissing  - DEEPSEEK_API_KEY not set       │
-│  cli.ErrUnsupportedProvider - Invalid provider name          │
-│  cli.ErrInvalidDuration     - Bad duration format            │
-│  cli.ErrUnsupportedFormat   - Unknown audio format           │
-│  cli.ErrFileNotFound        - Input file missing             │
-│  cli.ErrOutputExists        - Output would overwrite         │
-│  audio.ErrNoAudioDevice     - No recording device            │
-│  audio.ErrLoopbackNotFound  - Loopback not available         │
-│  transcribe.ErrRateLimit    - OpenAI rate limited            │
-│  transcribe.ErrQuotaExceeded- Billing issue                  │
-│  template.ErrUnknown        - Invalid template name          │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                      Error Types                         │
+├──────────────────────────────────────────────────────────┤
+│  cli.ErrAPIKeyMissing       - OPENAI_API_KEY not set     │
+│  cli.ErrDeepSeekKeyMissing  - DEEPSEEK_API_KEY not set   │
+│  cli.ErrUnsupportedProvider - Invalid provider name      │
+│  cli.ErrInvalidDuration     - Bad duration format        │
+│  cli.ErrUnsupportedFormat   - Unknown audio format       │
+│  cli.ErrFileNotFound        - Input file missing         │
+│  cli.ErrOutputExists        - Output would overwrite     │
+│  audio.ErrNoAudioDevice     - No recording device        │
+│  audio.ErrLoopbackNotFound  - Loopback not available     │
+│  transcribe.ErrRateLimit    - OpenAI rate limited        │
+│  transcribe.ErrQuotaExceeded- Billing issue              │
+│  template.ErrUnknown        - Invalid template name      │
+└──────────────────────────────────────────────────────────┘
 ```
 
 **Exit codes** map errors to specific values (see README.md).
@@ -282,17 +282,17 @@ For long transcripts that exceed token limits:
 ## Interrupt Handling
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  Graceful Interrupts                         │
-│                                                              │
-│   First Ctrl+C:                                              │
-│   └── Stop recording, continue with transcription            │
-│                                                              │
-│   Second Ctrl+C (within 2s):                                 │
-│   └── Abort entirely                                         │
-│                                                              │
-│   Implementation: internal/interrupt/handler.go              │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────┐
+│                  Graceful Interrupts                  │
+│                                                       │
+│   First Ctrl+C:                                       │
+│   └── Stop recording, continue with transcription     │
+│                                                       │
+│   Second Ctrl+C (within 2s):                          │
+│   └── Abort entirely                                  │
+│                                                       │
+│   Implementation: internal/interrupt/handler.go       │
+└───────────────────────────────────────────────────────┘
 ```
 
 ---
