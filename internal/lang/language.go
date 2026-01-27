@@ -5,6 +5,108 @@ import (
 	"strings"
 )
 
+// Language represents a validated ISO 639-1 language code.
+// The zero value represents "auto-detect" mode and is valid.
+// Use Parse to create a Language from user input.
+type Language struct {
+	code string // normalized: lowercase, hyphen separator (e.g., "pt-br")
+}
+
+// Parse validates and returns a Language from a string.
+// Empty string represents "auto-detect" mode and returns a zero Language.
+// Returns ErrInvalid if the language code is not recognized.
+func Parse(s string) (Language, error) {
+	if s == "" {
+		return Language{}, nil // auto-detect
+	}
+
+	normalized := Normalize(s)
+	base := baseCode(normalized)
+	if !validLanguages[base] {
+		return Language{}, fmt.Errorf("invalid language code %q (use ISO 639-1 codes like 'en', 'fr', or locales like 'pt-BR'): %w",
+			s, ErrInvalid)
+	}
+
+	return Language{code: normalized}, nil
+}
+
+// MustParse parses a language code and panics if invalid.
+// Use only for compile-time constants and tests.
+func MustParse(s string) Language {
+	l, err := Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return l
+}
+
+// String returns the normalized language code, or empty string for auto-detect.
+func (l Language) String() string {
+	return l.code
+}
+
+// IsZero returns true if this is the zero value (auto-detect mode).
+// Unlike Provider.IsZero() which indicates an invalid state,
+// Language.IsZero() represents a valid "auto-detect" mode where
+// the API will automatically detect the language.
+func (l Language) IsZero() bool {
+	return l.code == ""
+}
+
+// IsEnglish returns true if this language is English.
+func (l Language) IsEnglish() bool {
+	if l.code == "" {
+		return false
+	}
+	return l.code == "en" || strings.HasPrefix(l.code, "en-")
+}
+
+// IsFrench returns true if this language is French.
+func (l Language) IsFrench() bool {
+	if l.code == "" {
+		return false
+	}
+	return l.code == "fr" || strings.HasPrefix(l.code, "fr-")
+}
+
+// BaseCode returns the ISO 639-1 base code (without region).
+// Returns empty string for auto-detect mode.
+func (l Language) BaseCode() string {
+	return baseCode(l.code)
+}
+
+// DisplayName returns a human-readable name for this language.
+// Returns empty string for auto-detect mode.
+func (l Language) DisplayName() string {
+	if l.code == "" {
+		return ""
+	}
+
+	if name, ok := displayNames[l.code]; ok {
+		return name
+	}
+
+	base := l.BaseCode()
+	if name, ok := displayNames[base]; ok {
+		return name
+	}
+
+	return l.code
+}
+
+// baseCode extracts the ISO 639-1 base code from a normalized locale.
+// This is the internal helper; use Language.BaseCode() for the public API.
+// The deprecated package-level BaseCode() function delegates here for backward compatibility.
+func baseCode(normalized string) string {
+	if normalized == "" {
+		return ""
+	}
+	if idx := strings.Index(normalized, "-"); idx != -1 {
+		return normalized[:idx]
+	}
+	return normalized
+}
+
 // validLanguages contains ISO 639-1 language codes supported by OpenAI's transcription API.
 // This is not exhaustive but covers the most common languages.
 // OpenAI supports additional languages; users can request additions.
@@ -138,78 +240,4 @@ var displayNames = map[string]string{
 // Examples: "pt-BR" -> "pt-br", "pt_BR" -> "pt-br", "PT-BR" -> "pt-br"
 func Normalize(lang string) string {
 	return strings.ToLower(strings.ReplaceAll(lang, "_", "-"))
-}
-
-// Validate checks if the language code is valid.
-// Accepts ISO 639-1 codes (e.g., "en", "fr") or locales with valid base (e.g., "pt-BR", "zh-CN").
-// Only the base code is validated; regional suffixes are ignored.
-// Returns nil for empty string (auto-detect mode).
-// Returns ErrInvalid if the base language is not recognized.
-func Validate(lang string) error {
-	if lang == "" {
-		return nil // Empty means auto-detect, which is valid
-	}
-
-	base := BaseCode(lang)
-	if !validLanguages[base] {
-		return fmt.Errorf("invalid language code %q (use ISO 639-1 codes like 'en', 'fr', or locales like 'pt-BR'): %w",
-			lang, ErrInvalid)
-	}
-
-	return nil
-}
-
-// BaseCode extracts the ISO 639-1 base language code from a locale.
-// OpenAI's transcription API only accepts base codes, not regional variants.
-// Examples: "pt-BR" -> "pt", "zh-CN" -> "zh", "en" -> "en"
-func BaseCode(lang string) string {
-	if lang == "" {
-		return ""
-	}
-	normalized := Normalize(lang)
-	if idx := strings.Index(normalized, "-"); idx != -1 {
-		return normalized[:idx]
-	}
-	return normalized
-}
-
-// IsFrench returns true if the language code represents French.
-func IsFrench(lang string) bool {
-	if lang == "" {
-		return false
-	}
-	normalized := Normalize(lang)
-	return normalized == "fr" || strings.HasPrefix(normalized, "fr-")
-}
-
-// IsEnglish returns true if the language code represents English.
-// Used to skip the output language instruction when output is English
-// (since templates are already in English).
-func IsEnglish(lang string) bool {
-	if lang == "" {
-		return false
-	}
-	normalized := Normalize(lang)
-	return normalized == "en" || strings.HasPrefix(normalized, "en-")
-}
-
-// DisplayName returns a human-readable name for a language code.
-// Lookup order: exact locale match -> base language -> original code.
-// Returns empty string for empty input.
-// Used in the restructuring prompt instruction.
-func DisplayName(lang string) string {
-	normalized := Normalize(lang)
-
-	if name, ok := displayNames[normalized]; ok {
-		return name
-	}
-
-	// Fallback to base language name
-	base := BaseCode(lang)
-	if name, ok := displayNames[base]; ok {
-		return name
-	}
-
-	// Last resort: return the code itself
-	return lang
 }
