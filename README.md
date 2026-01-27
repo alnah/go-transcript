@@ -13,10 +13,13 @@
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Features](#features)
+- [How it Works](#how-it-works)
 - [CLI Reference](#cli-reference)
 - [Environment Variables](#environment-variables)
 - [Configuration](#configuration)
 - [Templates](#templates)
+  - [Pricing](#pricing)
+  - [Best Practices](#best-practices)
 - [Troubleshooting](#troubleshooting)
 - [Known Limitations](#known-limitations)
 - [Contributing](#contributing)
@@ -57,24 +60,31 @@ Download pre-built binaries from [GitHub Releases](https://github.com/alnah/go-t
 Create a `.env` file in your working directory (auto-loaded on startup):
 
 ```bash
-# If you cloned the repo:
+# Copy the example file
 cp .env.example .env
+# Then edit with your API keys
+```
 
-# Or create directly:
-echo "OPENAI_API_KEY=sk-your-key" > .env
+The `.env.example` file contains:
+
+```bash
+OPENAI_API_KEY=sk-your-key-here      # Required for transcription
+DEEPSEEK_API_KEY=sk-your-key-here    # Required for restructuring (default provider)
 ```
 
 Or export directly:
 
 ```bash
 export OPENAI_API_KEY=sk-...
+export DEEPSEEK_API_KEY=sk-...  # Only needed if using --template
 ```
 
 ## Quick Start
 
 ```bash
-# Set your API key
+# Set your API keys
 export OPENAI_API_KEY=sk-...
+export DEEPSEEK_API_KEY=sk-...  # For restructuring
 
 # Record and transcribe a meeting
 transcript live -d 1h -o meeting.md -t meeting
@@ -84,6 +94,9 @@ transcript transcribe recording.ogg -o notes.md -t brainstorm
 
 # Record system audio (video call)
 transcript record -d 30m --loopback -o call.ogg
+
+# Restructure an existing transcript
+transcript structure raw_notes.md -t lecture -o lecture.md
 ```
 
 ## Features
@@ -96,6 +109,31 @@ transcript record -d 30m --loopback -o call.ogg
 - **Language support** - Specify audio language, translate output
 - **Graceful interrupts** - Ctrl+C stops recording, continues transcription
 
+## How it Works
+
+```
+┌─────────┐    ┌─────────┐    ┌────────────┐    ┌─────────────┐    ┌────────┐
+│  Audio  │───▶│ FFmpeg  │───▶│  Chunking  │───▶│ Transcribe  │───▶│ Output │
+│  Input  │    │ Record  │    │ (silences) │    │  (OpenAI)   │    │  .md   │
+└─────────┘    └─────────┘    └────────────┘    └─────────────┘    └────────┘
+     │                                                │                  │
+     │                                                ▼                  │
+     │                                        ┌─────────────┐            │
+     │                                        │ Restructure │────────────┘
+     │                                        │ (DeepSeek/  │
+     │                                        │   OpenAI)   │
+     │                                        └─────────────┘
+     │
+     ├── Microphone (default)
+     ├── System audio (--loopback)
+     └── Both mixed (--mix)
+```
+
+1. **Record**: Capture audio via FFmpeg (mic, loopback, or mixed)
+2. **Chunk**: Split at natural silences to respect OpenAI's 25MB limit
+3. **Transcribe**: Parallel API calls to OpenAI (`gpt-4o-mini-transcribe`)
+4. **Restructure** (optional): Format with template via DeepSeek or OpenAI
+
 ## CLI Reference
 
 ```bash
@@ -105,6 +143,7 @@ Commands:
   record       Record audio to file
   transcribe   Transcribe audio file to text
   live         Record and transcribe in one step
+  structure    Restructure an existing transcript
   config       Manage configuration
   help         Help about any command
   version      Show version information
@@ -123,13 +162,13 @@ transcript record -d 1h --mix -o meeting.ogg      # Both mixed
 <details>
 <summary>All flags</summary>
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--duration` | `-d` | required | Recording duration (e.g., `30s`, `5m`, `2h`) |
-| `--output` | `-o` | `recording_<timestamp>.ogg` | Output file path |
-| `--device` | | system default | Specific audio input device |
-| `--loopback` | | `false` | Capture system audio instead of microphone |
-| `--mix` | | `false` | Capture both microphone and system audio |
+| Flag         | Short | Default                     | Description                                |
+|--------------|-------|-----------------------------|--------------------------------------------|
+| `--duration` | `-d`  | required                    | Recording duration (e.g., `30s`, `5m`, `2h`) |
+| `--output`   | `-o`  | `recording_<timestamp>.ogg` | Output file path                           |
+| `--device`   |       | system default              | Specific audio input device                |
+| `--loopback` |       | `false`                     | Capture system audio instead of microphone |
+| `--mix`      |       | `false`                     | Capture both microphone and system audio   |
 
 `--loopback` and `--mix` are mutually exclusive.
 
@@ -148,15 +187,15 @@ transcript transcribe french.ogg -o notes.md -l fr --output-lang en -t meeting
 <details>
 <summary>All flags</summary>
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--output` | `-o` | `<input>.md` | Output file path |
-| `--template` | `-t` | | Restructure template: `brainstorm`, `meeting`, `lecture`, `notes` |
-| `--provider` | | `deepseek` | LLM provider for restructuring: `deepseek`, `openai` |
-| `--language` | `-l` | auto-detect | Audio language (ISO 639-1: `en`, `fr`, `pt-BR`) |
-| `--output-lang` | | same as input | Output language for restructured text |
-| `--parallel` | `-p` | `10` | Max concurrent API requests (1-10) |
-| `--diarize` | | `false` | Enable speaker identification |
+| Flag            | Short | Default       | Description                                                      |
+|-----------------|-------|---------------|------------------------------------------------------------------|
+| `--output`      | `-o`  | `<input>.md`  | Output file path                                                 |
+| `--template`    | `-t`  |               | Restructure template: `brainstorm`, `meeting`, `lecture`, `notes`|
+| `--provider`    |       | `deepseek`    | LLM provider for restructuring: `deepseek`, `openai`             |
+| `--language`    | `-l`  | auto-detect   | Audio language (ISO 639-1: `en`, `fr`, `pt-BR`)                  |
+| `--output-lang` |       | same as input | Output language for restructured text                            |
+| `--parallel`    | `-p`  | `10`          | Max concurrent API requests (1-10)                               |
+| `--diarize`     |       | `false`       | Enable speaker identification                                    |
 
 `--output-lang` requires `--template`.
 
@@ -177,9 +216,33 @@ transcript live -d 2h --mix -t meeting --diarize -o call.md
 
 Inherits all flags from `record` and `transcribe`, plus:
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--keep-audio` | `-k` | `false` | Preserve the audio file after transcription |
+| Flag               | Short | Default | Description                                                       |
+|--------------------|-------|---------|-------------------------------------------------------------------|
+| `--keep-audio`     | `-k`  | `false` | Preserve the audio file after transcription                       |
+| `--keep-transcript` |       | `false` | Keep raw transcript before restructuring (requires `--template`)  |
+
+</details>
+
+### structure
+
+Restructure an existing transcript file using a template. Useful for re-processing raw transcripts generated without `--template`.
+
+```bash
+transcript structure meeting_raw.md -t meeting -o meeting.md
+transcript structure notes.md -t brainstorm
+transcript structure lecture.md -t lecture --output-lang fr
+transcript structure raw.md -t notes --provider openai
+```
+
+<details>
+<summary>All flags</summary>
+
+| Flag            | Short | Default                 | Description                                                       |
+|-----------------|-------|-------------------------|-------------------------------------------------------------------|
+| `--output`      | `-o`  | `<input>_structured.md` | Output file path                                                  |
+| `--template`    | `-t`  | required                | Restructure template: `brainstorm`, `meeting`, `lecture`, `notes` |
+| `--provider`    |       | `deepseek`              | LLM provider for restructuring: `deepseek`, `openai`              |
+| `--output-lang` |       | same as input           | Output language (ISO 639-1: `en`, `fr`, `pt-BR`)                  |
 
 </details>
 
@@ -196,16 +259,16 @@ transcript config list
 <details>
 <summary>Exit codes</summary>
 
-| Code | Name | Description |
-|------|------|-------------|
-| 0 | Success | Operation completed successfully |
-| 1 | General | Unexpected or unclassified error |
-| 2 | Usage | Invalid flags or arguments |
-| 3 | Setup | FFmpeg not found, API key missing, no audio device |
-| 4 | Validation | Unsupported format, file not found, invalid language |
-| 5 | Transcription | Rate limit, quota exceeded, auth failed |
-| 6 | Restructure | Transcript exceeds token limit |
-| 130 | Interrupt | Aborted via Ctrl+C |
+| Code | Name          | Description                                          |
+|------|---------------|------------------------------------------------------|
+| 0    | Success       | Operation completed successfully                     |
+| 1    | General       | Unexpected or unclassified error                     |
+| 2    | Usage         | Invalid flags or arguments                           |
+| 3    | Setup         | FFmpeg not found, API key missing, no audio device   |
+| 4    | Validation    | Unsupported format, file not found, invalid language |
+| 5    | Transcription | Rate limit, quota exceeded, auth failed              |
+| 6    | Restructure   | Transcript exceeds token limit                       |
+| 130  | Interrupt     | Aborted via Ctrl+C                                   |
 
 </details>
 
@@ -213,12 +276,12 @@ transcript config list
 
 **Priority:** CLI flags > environment variables > config file > defaults
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | Yes | | OpenAI API key for transcription (and restructuring with `--provider openai`) |
-| `DEEPSEEK_API_KEY` | No | | DeepSeek API key (required when using `--template` with default provider) |
-| `TRANSCRIPT_OUTPUT_DIR` | No | `.` | Default output directory |
-| `FFMPEG_PATH` | No | auto | Path to FFmpeg binary (skips auto-download) |
+| Variable                | Required | Default | Description                                                              |
+|-------------------------|----------|---------|--------------------------------------------------------------------------|
+| `OPENAI_API_KEY`        | Yes      |         | OpenAI API key for transcription (and restructuring with `--provider openai`) |
+| `DEEPSEEK_API_KEY`      | No       |         | DeepSeek API key (required when using `--template` with default provider)|
+| `TRANSCRIPT_OUTPUT_DIR` | No       | `.`     | Default output directory                                                 |
+| `FFMPEG_PATH`           | No       | auto    | Path to FFmpeg binary (skips auto-download)                              |
 
 > **Tip:** Place a `.env` file in your working directory with these variables. It will be auto-loaded on startup via [godotenv](https://github.com/joho/godotenv). See `.env.example` for reference.
 
@@ -226,16 +289,16 @@ transcript config list
 
 Config files are stored in the user config directory:
 
-| OS | Config Directory |
-|----|------------------|
-| Linux | `~/.config/go-transcript/` |
-| macOS | `~/.config/go-transcript/` |
-| Windows | `%APPDATA%\go-transcript\` |
+| OS      | Config Directory             |
+|---------|------------------------------|
+| Linux   | `~/.config/go-transcript/`   |
+| macOS   | `~/.config/go-transcript/`   |
+| Windows | `%APPDATA%\go-transcript\`   |
 
 Respects `XDG_CONFIG_HOME` if set.
 
-| Key | Description |
-|-----|-------------|
+| Key          | Description                      |
+|--------------|----------------------------------|
 | `output-dir` | Default directory for output files |
 
 <details>
@@ -252,12 +315,12 @@ output-dir=/Users/john/Documents/transcripts
 
 Templates transform raw transcripts into structured markdown.
 
-| Template | Purpose | Output Structure |
-|----------|---------|------------------|
-| `brainstorm` | Idea generation sessions | H1 topic, H2 themes, bullet points, key insights, actions |
-| `meeting` | Meeting notes | H1 subject, participants, topics discussed, decisions, action items |
-| `lecture` | Course/conference lectures | Readable prose with H1/H2/H3 headers, bold key terms |
-| `notes` | Bullet-point lecture notes | H2 thematic headers, hierarchical bullet points, bold terms |
+| Template     | Purpose                    | Output Structure                                              |
+|--------------|----------------------------|---------------------------------------------------------------|
+| `brainstorm` | Idea generation sessions   | H1 topic, H2 themes, bullet points, key insights, actions     |
+| `meeting`    | Meeting notes              | H1 subject, participants, topics discussed, decisions, action items |
+| `lecture`    | Course/conference lectures | Readable prose with H1/H2/H3 headers, bold key terms          |
+| `notes`      | Bullet-point lecture notes | H2 thematic headers, hierarchical bullet points, bold terms   |
 
 Templates output English by default. Use `--output-lang` to translate:
 
@@ -267,11 +330,55 @@ transcript transcribe audio.ogg -t meeting --output-lang fr
 
 ### Provider Selection
 
-Restructuring uses DeepSeek by default. Use OpenAI for alternative processing:
+Restructuring uses **DeepSeek** (`deepseek-reasoner`) by default because it delivers excellent results at a fraction of the cost. Use OpenAI (`o4-mini`) for faster processing:
 
 ```bash
-# Use OpenAI for restructuring (uses OPENAI_API_KEY)
+# Default: DeepSeek (slower, cheaper, excellent quality)
+transcript transcribe audio.ogg -t lecture
+
+# OpenAI (faster, more expensive)
 transcript transcribe audio.ogg -t lecture --provider openai
+```
+
+### Pricing
+
+| Model                    | Input (per 1M tokens) | Output (per 1M tokens) | Notes                                  |
+|--------------------------|-----------------------|------------------------|----------------------------------------|
+| `gpt-4o-mini-transcribe` | $2.50                 | $10.00                 | Transcription                          |
+| `o4-mini`                | $1.10                 | $4.40                  | OpenAI restructuring (100K max output) |
+| `deepseek-reasoner`      | $0.21                 | $0.32                  | DeepSeek restructuring (64K max output)|
+
+**Cost estimates** (assuming ~150 words/minute, ~200 tokens/minute):
+
+| Operation                     | 1 hour recording | Cost estimate |
+|-------------------------------|------------------|---------------|
+| Transcription only            | ~12K tokens      | ~$0.15        |
+| Transcription + restructuring (DeepSeek) | ~12K + ~15K tokens | ~$0.16  |
+| Transcription + restructuring (OpenAI)   | ~12K + ~15K tokens | ~$0.22  |
+
+DeepSeek is **~10x cheaper** for restructuring with comparable quality. It's slower (can take several minutes for long transcripts), but the cost savings are significant for heavy usage.
+
+### Best Practices
+
+Use `--keep-audio` and `--keep-transcript` to preserve intermediate files:
+
+```bash
+# Keep both audio and raw transcript for re-processing
+transcript live -d 1h -t meeting --keep-audio --keep-transcript -o meeting.md
+```
+
+This allows you to:
+- **Re-transcribe** if the initial transcription quality is poor
+- **Re-restructure** with a different template without re-transcribing
+- **Try multiple templates** on the same transcript (e.g., `lecture` vs `notes`)
+- **Switch providers** to compare DeepSeek vs OpenAI results
+
+```bash
+# Re-restructure an existing transcript with a different template
+transcript structure meeting_raw.md -t notes -o meeting_notes.md
+
+# Try OpenAI instead of DeepSeek
+transcript structure meeting_raw.md -t meeting --provider openai -o meeting_openai.md
 ```
 
 ## Supported Formats
@@ -351,70 +458,57 @@ Download from: https://vb-audio.com/Cable/
 
 ### API errors
 
-| Error | Cause | Solution |
-|-------|-------|----------|
-| "OPENAI_API_KEY not set" | Missing API key | `export OPENAI_API_KEY=sk-...` |
-| "DEEPSEEK_API_KEY not set" | Missing key for DeepSeek | `export DEEPSEEK_API_KEY=sk-...` |
-| "rate limit exceeded" | Too many requests | Reduce `--parallel` or wait |
-| "quota exceeded" | Billing issue | Check OpenAI/DeepSeek account billing |
-| "authentication failed" | Invalid API key | Verify your API key |
+| Error                       | Cause                    | Solution                               |
+|-----------------------------|--------------------------|----------------------------------------|
+| "OPENAI_API_KEY not set"    | Missing API key          | `export OPENAI_API_KEY=sk-...`         |
+| "DEEPSEEK_API_KEY not set"  | Missing key for DeepSeek | `export DEEPSEEK_API_KEY=sk-...`       |
+| "rate limit exceeded"       | Too many requests        | Reduce `--parallel` or wait            |
+| "quota exceeded"            | Billing issue            | Check OpenAI/DeepSeek account billing  |
+| "authentication failed"     | Invalid API key          | Verify your API key                    |
 
 ### Transcript too long
 
-The restructuring step has a ~100K token limit. For very long recordings:
+Output token limits depend on the restructuring provider:
 
-- Skip restructuring (no `--template`)
+| Provider           | Max output tokens |
+|--------------------|-------------------|
+| `o4-mini` (OpenAI) | 100,000           |
+| `deepseek-reasoner`| 64,000            |
+
+For very long recordings:
+- Skip restructuring (no `--template`) and use `structure` command later
 - Split the audio file manually
 - Use shorter recording sessions
+- Try `--provider openai` for higher token limit
 
 ## Known Limitations
 
 ### By Design
 
-| Not Supported | Why |
-|---------------|-----|
-| Real-time streaming | OpenAI Whisper API is batch-only |
-| Local transcription | Requires OpenAI API |
-| Video input | Audio extraction not implemented |
-
-### OpenAI API
-
-| Limitation | Workaround |
-|------------|------------|
-| 25MB file size | Auto-chunking at silences |
-| Rate limits | Exponential backoff with retry |
-| No true diarization | Uses segment-based pseudo-diarization |
+| Not Supported       | Why                                    |
+|---------------------|----------------------------------------|
+| Real-time streaming | Uses batch API, not Realtime API       |
+| Offline mode        | Requires internet (cloud APIs only)    |
+| Video input         | Audio extraction not implemented       |
 
 ### Platform Notes
 
-| Issue | Solution |
-|-------|----------|
-| No loopback on Linux without PulseAudio | Install pulseaudio |
-| BlackHole mutes audio on macOS | Create Multi-Output Device |
-| Stereo Mix disabled on Windows | Enable in Sound settings |
+| Issue                                   | Solution                   |
+|-----------------------------------------|----------------------------|
+| No loopback on Linux without PulseAudio | Install pulseaudio         |
+| BlackHole mutes audio on macOS          | Create Multi-Output Device |
+| Stereo Mix disabled on Windows          | Enable in Sound settings   |
 
 ## Contributing
 
-```bash
-make build    # Build binary
-make test     # Run unit tests
-make check    # Run all checks (fmt, vet, lint, test)
-make bench    # Run benchmarks
-make tools    # Install staticcheck and gosec
-```
+This project is currently in active development and **not accepting external contributions**.
 
-<details>
-<summary>Advanced test targets</summary>
+Feel free to:
+- Open issues for bug reports
+- Suggest features via issues
+- Fork for personal use
 
-```bash
-make test-integration  # Requires FFmpeg
-make test-e2e          # Requires FFmpeg + OPENAI_API_KEY
-make test-all          # Unit + integration + e2e
-make check-all         # Full CI checks (fmt, vet, lint, sec, integration)
-make test-cover        # Unit tests with HTML coverage report
-```
-
-</details>
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, or [docs/](docs/) for architecture and project layout.
 
 ## License
 
