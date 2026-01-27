@@ -18,9 +18,9 @@ import (
 // Restructurer transforms raw transcripts into structured markdown using templates.
 type Restructurer interface {
 	// Restructure transforms a transcript using the specified template.
-	// outputLang specifies the output language (e.g., "fr", "pt-BR").
-	// Empty outputLang uses the template's native language (English).
-	Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, error)
+	// outputLang specifies the output language.
+	// Zero value outputLang uses the template's native language (English).
+	Restructure(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, error)
 }
 
 // chatCompleter is an internal interface for OpenAI chat completion.
@@ -30,23 +30,18 @@ type chatCompleter interface {
 	CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
 }
 
-// templateResolver resolves template names to prompts.
-// Default implementation uses template.Get from internal/template.
-type templateResolver func(name string) (string, error)
-
 // Compile-time interface compliance check.
 var _ Restructurer = (*OpenAIRestructurer)(nil)
 
 // OpenAIRestructurer restructures transcripts using OpenAI's chat completion API.
 // It supports automatic retries with exponential backoff for transient errors.
 type OpenAIRestructurer struct {
-	client          chatCompleter
-	model           string
-	maxInputTokens  int
-	maxRetries      int
-	baseDelay       time.Duration
-	maxDelay        time.Duration
-	resolveTemplate templateResolver
+	client         chatCompleter
+	model          string
+	maxInputTokens int
+	maxRetries     int
+	baseDelay      time.Duration
+	maxDelay       time.Duration
 }
 
 // Option configures an OpenAIRestructurer.
@@ -103,13 +98,6 @@ func WithRetryDelays(base, max time.Duration) Option {
 	}
 }
 
-// withTemplateResolver sets a custom template resolver (for testing).
-func withTemplateResolver(resolver templateResolver) Option {
-	return func(r *OpenAIRestructurer) {
-		r.resolveTemplate = resolver
-	}
-}
-
 // withChatCompleter sets a custom chat completer (for testing).
 func withChatCompleter(cc chatCompleter) Option {
 	return func(r *OpenAIRestructurer) {
@@ -121,13 +109,12 @@ func withChatCompleter(cc chatCompleter) Option {
 // Use options to customize model, token limits, and retry behavior.
 func NewOpenAIRestructurer(client *openai.Client, opts ...Option) *OpenAIRestructurer {
 	r := &OpenAIRestructurer{
-		client:          client,
-		model:           defaultRestructureModel,
-		maxInputTokens:  defaultMaxInputTokens,
-		maxRetries:      defaultRestructureMaxRetries,
-		baseDelay:       defaultRestructureBaseDelay,
-		maxDelay:        defaultRestructureMaxDelay,
-		resolveTemplate: template.Get,
+		client:         client,
+		model:          defaultRestructureModel,
+		maxInputTokens: defaultMaxInputTokens,
+		maxRetries:     defaultRestructureMaxRetries,
+		baseDelay:      defaultRestructureBaseDelay,
+		maxDelay:       defaultRestructureMaxDelay,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -136,25 +123,20 @@ func NewOpenAIRestructurer(client *openai.Client, opts ...Option) *OpenAIRestruc
 }
 
 // Restructure transforms a raw transcript into structured markdown using the specified template.
-// outputLang specifies the output language (e.g., "fr", "pt-BR"). Empty uses template's native language (English).
-// Returns template.ErrUnknown if the template name is invalid.
+// outputLang specifies the output language. Zero value uses template's native language (English).
 // Returns ErrTranscriptTooLong if the transcript exceeds the token limit (estimated).
 // Automatically retries on transient errors (rate limits, timeouts, server errors).
 //
 // Token estimation uses len(text)/3 which is conservative for French text.
 // The actual API limit is 128K tokens; we use 100K as a safety margin.
-func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, error) {
-	// 1. Resolve template
-	prompt, err := r.resolveTemplate(templateName)
-	if err != nil {
-		return "", err
-	}
+func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, error) {
+	// 1. Get prompt from validated template
+	prompt := tmpl.Prompt()
 
 	// 2. Add language instruction if output is not English (template's native language)
 	// English output (en, en-US, en-GB, etc.) skips this instruction since templates are native English.
-	if outputLang != "" && !lang.IsEnglish(outputLang) {
-		langName := lang.DisplayName(outputLang)
-		prompt = fmt.Sprintf("Respond in %s.\n\n%s", langName, prompt)
+	if !outputLang.IsZero() && !outputLang.IsEnglish() {
+		prompt = fmt.Sprintf("Respond in %s.\n\n%s", outputLang.DisplayName(), prompt)
 	}
 
 	// 3. Estimate tokens and check limit
@@ -183,11 +165,6 @@ func (r *OpenAIRestructurer) Restructure(ctx context.Context, transcript, templa
 
 	// 5. Call API with retry
 	return r.restructureWithRetry(ctx, req)
-}
-
-// getTemplateResolver returns the template resolver (used by MapReduceRestructurer).
-func (r *OpenAIRestructurer) getTemplateResolver() templateResolver {
-	return r.resolveTemplate
 }
 
 // RestructureWithCustomPrompt executes restructuring with a custom prompt (used by MapReduce).

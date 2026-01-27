@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/alnah/go-transcript/internal/lang"
+	"github.com/alnah/go-transcript/internal/template"
 )
 
 // MapReduce configuration for long transcript handling.
@@ -123,7 +124,6 @@ func buildMapPrompt(basePrompt string, chunk TranscriptChunk) string {
 type customPromptRestructurer interface {
 	Restructurer
 	RestructureWithCustomPrompt(ctx context.Context, content, prompt string) (string, error)
-	getTemplateResolver() templateResolver
 }
 
 // MapReducer processes transcripts with automatic chunking for long content.
@@ -131,7 +131,7 @@ type customPromptRestructurer interface {
 type MapReducer interface {
 	// Restructure processes a transcript, using MapReduce if it exceeds the token limit.
 	// Returns the restructured output, whether MapReduce was used, and any error.
-	Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error)
+	Restructure(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error)
 }
 
 // Compile-time interface compliance check.
@@ -180,32 +180,27 @@ func NewMapReduceRestructurer(r customPromptRestructurer, opts ...MapReduceOptio
 
 // Restructure processes a transcript, using MapReduce if it exceeds the token limit.
 // Returns the restructured output, whether MapReduce was used, and any error.
-func (mr *MapReduceRestructurer) Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+func (mr *MapReduceRestructurer) Restructure(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 	// Check if MapReduce is needed
 	chunks := splitTranscript(transcript, mr.maxTokens)
 	if chunks == nil {
 		// Fits in one chunk, use standard restructuring
-		result, err := mr.restructurer.Restructure(ctx, transcript, templateName, outputLang)
+		result, err := mr.restructurer.Restructure(ctx, transcript, tmpl, outputLang)
 		return result, false, err
 	}
 
 	// MapReduce needed
-	return mr.mapReduce(ctx, chunks, templateName, outputLang)
+	return mr.mapReduce(ctx, chunks, tmpl, outputLang)
 }
 
 // mapReduce executes the map and reduce phases.
-func (mr *MapReduceRestructurer) mapReduce(ctx context.Context, chunks []TranscriptChunk, templateName, outputLang string) (string, bool, error) {
-	// Get base template
-	resolver := mr.restructurer.getTemplateResolver()
-	basePrompt, err := resolver(templateName)
-	if err != nil {
-		return "", true, err
-	}
+func (mr *MapReduceRestructurer) mapReduce(ctx context.Context, chunks []TranscriptChunk, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
+	// Get base prompt from validated template
+	basePrompt := tmpl.Prompt()
 
 	// Add language instruction if needed (skip for English, template's native language)
-	if outputLang != "" && !lang.IsEnglish(outputLang) {
-		langName := lang.DisplayName(outputLang)
-		basePrompt = fmt.Sprintf("Respond in %s.\n\n%s", langName, basePrompt)
+	if !outputLang.IsZero() && !outputLang.IsEnglish() {
+		basePrompt = fmt.Sprintf("Respond in %s.\n\n%s", outputLang.DisplayName(), basePrompt)
 	}
 
 	// Map phase: process each chunk
@@ -241,7 +236,7 @@ func (mr *MapReduceRestructurer) mapReduce(ctx context.Context, chunks []Transcr
 }
 
 // reduce merges multiple chunk outputs into a coherent document.
-func (mr *MapReduceRestructurer) reduce(ctx context.Context, outputs []string, outputLang string) (string, error) {
+func (mr *MapReduceRestructurer) reduce(ctx context.Context, outputs []string, outputLang lang.Language) (string, error) {
 	// Build the input for the reduce phase
 	var input strings.Builder
 	for i, output := range outputs {
@@ -253,9 +248,8 @@ func (mr *MapReduceRestructurer) reduce(ctx context.Context, outputs []string, o
 
 	// Build reduce prompt with language instruction (skip for English, template's native language)
 	prompt := reducePrompt
-	if outputLang != "" && !lang.IsEnglish(outputLang) {
-		langName := lang.DisplayName(outputLang)
-		prompt = fmt.Sprintf("Respond in %s.\n\n%s", langName, prompt)
+	if !outputLang.IsZero() && !outputLang.IsEnglish() {
+		prompt = fmt.Sprintf("Respond in %s.\n\n%s", outputLang.DisplayName(), prompt)
 	}
 
 	return mr.restructurer.RestructureWithCustomPrompt(ctx, input.String(), prompt)

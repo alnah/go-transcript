@@ -18,7 +18,9 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 
+	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/restructure"
+	"github.com/alnah/go-transcript/internal/template"
 )
 
 // ---------------------------------------------------------------------------
@@ -212,7 +214,6 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		base := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -220,7 +221,7 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 			restructure.WithMapReduceMaxTokens(1000), // High limit
 		)
 
-		result, usedMapReduce, err := mr.Restructure(context.Background(), "Short transcript.", "meeting", "")
+		result, usedMapReduce, err := mr.Restructure(context.Background(), "Short transcript.", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -262,7 +263,6 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		base := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(interceptMock),
-			restructure.WithTemplateResolver(mockTemplateResolver("Base template prompt.", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -270,7 +270,7 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 			restructure.WithMapReduceMaxTokens(50), // Force splitting
 		)
 
-		result, usedMapReduce, err := mr.Restructure(context.Background(), transcript, "meeting", "")
+		result, usedMapReduce, err := mr.Restructure(context.Background(), transcript, template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -304,7 +304,6 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		base := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(interceptMock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -324,7 +323,7 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 		para2 := strings.Repeat("b", 300)
 		transcript := para1 + "\n\n" + para2
 
-		_, _, err := mr.Restructure(context.Background(), transcript, "meeting", "")
+		_, _, err := mr.Restructure(context.Background(), transcript, template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -368,7 +367,6 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		base := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(cancellingMock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -380,7 +378,7 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 		para2 := strings.Repeat("b", 300)
 		transcript := para1 + "\n\n" + para2
 
-		_, _, err := mr.Restructure(ctx, transcript, "meeting", "")
+		_, _, err := mr.Restructure(ctx, transcript, template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
 			t.Fatal("expected error after context cancellation")
 		}
@@ -390,25 +388,9 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 		}
 	})
 
-	t.Run("template error is returned", func(t *testing.T) {
-		t.Parallel()
-
-		mock := &mockChatCompleter{}
-		templateErr := errors.New("template not found")
-
-		base := restructure.NewOpenAIRestructurer(nil,
-			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("", templateErr)),
-		)
-
-		mr := restructure.NewMapReduceRestructurer(base)
-
-		// Even for short transcript, template error should be returned
-		_, _, err := mr.Restructure(context.Background(), "short", "unknown", "")
-		if err == nil {
-			t.Fatal("expected template error")
-		}
-	})
+	// Note: "template error is returned" test removed.
+	// With the template.Name type, invalid templates are caught at parse time
+	// (template.ParseName), not at restructure time. This is tested in template_test.go.
 
 	t.Run("adds language instruction in MapReduce", func(t *testing.T) {
 		t.Parallel()
@@ -424,7 +406,6 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		base := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(capturingMock),
-			restructure.WithTemplateResolver(mockTemplateResolver("Base prompt.", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -436,7 +417,7 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 		para2 := strings.Repeat("b", 300)
 		transcript := para1 + "\n\n" + para2
 
-		_, _, err := mr.Restructure(context.Background(), transcript, "meeting", "pt-BR")
+		_, _, err := mr.Restructure(context.Background(), transcript, template.MustParseName("meeting"), lang.MustParse("pt-BR"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -520,16 +501,6 @@ func (m *mockChatCompleter) SystemPrompt() string {
 		}
 	}
 	return ""
-}
-
-// mockTemplateResolver returns a template resolver that returns fixed content.
-func mockTemplateResolver(content string, err error) func(string) (string, error) {
-	return func(name string) (string, error) {
-		if err != nil {
-			return "", err
-		}
-		return content, nil
-	}
 }
 
 // successResponse creates a mock response with the given content.

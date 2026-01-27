@@ -16,7 +16,9 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 
+	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/restructure"
+	"github.com/alnah/go-transcript/internal/template"
 	"github.com/alnah/go-transcript/internal/transcribe"
 )
 
@@ -219,11 +221,10 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("Template prompt here.", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		result, err := r.Restructure(context.Background(), "Raw transcript.", "meeting", "")
+		result, err := r.Restructure(context.Background(), "Raw transcript.", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -237,26 +238,9 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid template returns error", func(t *testing.T) {
-		t.Parallel()
-
-		templateErr := errors.New("unknown template")
-		mock := &mockChatCompleter{}
-
-		r := restructure.NewOpenAIRestructurer(nil,
-			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("", templateErr)),
-		)
-
-		_, err := r.Restructure(context.Background(), "transcript", "unknown", "")
-		if err == nil {
-			t.Fatal("expected error for unknown template")
-		}
-
-		if mock.CallCount() != 0 {
-			t.Error("should not call API if template fails")
-		}
-	})
+	// Note: "invalid template returns error" test removed.
+	// With the template.Name type, invalid templates are caught at parse time
+	// (template.ParseName), not at restructure time. This is tested in template_test.go.
 
 	t.Run("transcript too long returns error", func(t *testing.T) {
 		t.Parallel()
@@ -265,13 +249,12 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithMaxInputTokens(10),
 		)
 
 		longTranscript := strings.Repeat("x", 100)
 
-		_, err := r.Restructure(context.Background(), longTranscript, "meeting", "")
+		_, err := r.Restructure(context.Background(), longTranscript, template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
 			t.Fatal("expected error for long transcript")
 		}
@@ -294,11 +277,10 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("Base prompt.", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "fr")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("fr"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -318,11 +300,10 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("Base prompt.", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "en")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("en"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -342,11 +323,10 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("Base prompt.", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "en-US")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("en-US"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -366,11 +346,10 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("Base prompt.", nil)),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -392,11 +371,10 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithMaxRetries(0),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
 			t.Fatal("expected error for empty choices")
 		}
@@ -428,12 +406,11 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithMaxRetries(5),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		result, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		result, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -456,12 +433,11 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithMaxRetries(5),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -484,12 +460,11 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithMaxRetries(5),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -512,12 +487,11 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithMaxRetries(2),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -544,12 +518,11 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		r := restructure.NewOpenAIRestructurer(nil,
 			restructure.WithChatCompleter(mock),
-			restructure.WithTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithMaxRetries(3),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		result, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		result, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

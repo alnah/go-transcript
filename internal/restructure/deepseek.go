@@ -57,7 +57,6 @@ type DeepSeekRestructurer struct {
 	maxDelay        time.Duration
 	httpTimeout     time.Duration
 	httpClient      httpDoer
-	resolveTemplate templateResolver
 }
 
 // DeepSeekOption configures a DeepSeekRestructurer.
@@ -134,13 +133,6 @@ func withDeepSeekHTTPClient(client httpDoer) DeepSeekOption {
 	}
 }
 
-// withDeepSeekTemplateResolver sets a custom template resolver (for testing).
-func withDeepSeekTemplateResolver(resolver templateResolver) DeepSeekOption {
-	return func(r *DeepSeekRestructurer) {
-		r.resolveTemplate = resolver
-	}
-}
-
 // ErrEmptyAPIKey indicates that the API key was not provided.
 var ErrEmptyAPIKey = errors.New("API key is required")
 
@@ -162,7 +154,6 @@ func NewDeepSeekRestructurer(apiKey string, opts ...DeepSeekOption) (*DeepSeekRe
 		baseDelay:       defaultDeepSeekBaseDelay,
 		maxDelay:        defaultDeepSeekMaxDelay,
 		httpTimeout:     defaultDeepSeekHTTPTimeout,
-		resolveTemplate: template.Get,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -175,21 +166,16 @@ func NewDeepSeekRestructurer(apiKey string, opts ...DeepSeekOption) (*DeepSeekRe
 }
 
 // Restructure transforms a raw transcript into structured markdown using the specified template.
-// outputLang specifies the output language (e.g., "fr", "pt-BR"). Empty uses template's native language (English).
-// Returns template.ErrUnknown if the template name is invalid.
+// outputLang specifies the output language. Zero value uses template's native language (English).
 // Returns ErrTranscriptTooLong if the transcript exceeds the token limit (estimated).
 // Automatically retries on transient errors (rate limits, timeouts, server errors).
-func (r *DeepSeekRestructurer) Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, error) {
-	// 1. Resolve template
-	prompt, err := r.resolveTemplate(templateName)
-	if err != nil {
-		return "", err
-	}
+func (r *DeepSeekRestructurer) Restructure(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, error) {
+	// 1. Get prompt from validated template
+	prompt := tmpl.Prompt()
 
 	// 2. Add language instruction if output is not English
-	if outputLang != "" && !lang.IsEnglish(outputLang) {
-		langName := lang.DisplayName(outputLang)
-		prompt = fmt.Sprintf("Respond in %s.\n\n%s", langName, prompt)
+	if !outputLang.IsZero() && !outputLang.IsEnglish() {
+		prompt = fmt.Sprintf("Respond in %s.\n\n%s", outputLang.DisplayName(), prompt)
 	}
 
 	// 3. Estimate tokens and check limit
@@ -212,11 +198,6 @@ func (r *DeepSeekRestructurer) Restructure(ctx context.Context, transcript, temp
 
 	// 5. Call API with retry
 	return r.restructureWithRetry(ctx, req)
-}
-
-// getTemplateResolver returns the template resolver (used by MapReduceRestructurer).
-func (r *DeepSeekRestructurer) getTemplateResolver() templateResolver {
-	return r.resolveTemplate
 }
 
 // RestructureWithCustomPrompt executes restructuring with a custom prompt (used by MapReduce).

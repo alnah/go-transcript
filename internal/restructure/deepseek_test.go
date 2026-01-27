@@ -17,7 +17,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/restructure"
+	"github.com/alnah/go-transcript/internal/template"
 	"github.com/alnah/go-transcript/internal/transcribe"
 )
 
@@ -361,11 +363,10 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		r := mustNewDeepSeekRestructurer(t, "test-api-key",
 			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("Template prompt here.", nil)),
 			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		result, err := r.Restructure(context.Background(), "Raw transcript.", "meeting", "")
+		result, err := r.Restructure(context.Background(), "Raw transcript.", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -379,28 +380,9 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid template returns error", func(t *testing.T) {
-		t.Parallel()
-
-		server := newMockDeepSeekServer()
-		t.Cleanup(server.Close)
-
-		templateErr := errors.New("unknown template")
-
-		r := mustNewDeepSeekRestructurer(t, "test-api-key",
-			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("", templateErr)),
-		)
-
-		_, err := r.Restructure(context.Background(), "transcript", "unknown", "")
-		if err == nil {
-			t.Fatal("expected error for unknown template")
-		}
-
-		if server.callCount() != 0 {
-			t.Error("should not call API if template fails")
-		}
-	})
+	// Note: "invalid template returns error" test removed.
+	// With the template.Name type, invalid templates are caught at parse time
+	// (template.ParseName), not at restructure time. This is tested in template_test.go.
 
 	t.Run("transcript too long returns error", func(t *testing.T) {
 		t.Parallel()
@@ -410,14 +392,13 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		r := mustNewDeepSeekRestructurer(t, "test-api-key",
 			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithDeepSeekMaxInputTokens(10), // Very low limit
 		)
 
 		// Create transcript that exceeds 10 tokens (10*3=30 chars)
 		longTranscript := strings.Repeat("x", 100)
 
-		_, err := r.Restructure(context.Background(), longTranscript, "meeting", "")
+		_, err := r.Restructure(context.Background(), longTranscript, template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
 			t.Fatal("expected error for long transcript")
 		}
@@ -441,11 +422,10 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		r := mustNewDeepSeekRestructurer(t, "test-api-key",
 			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("Base prompt.", nil)),
 			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "fr")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("fr"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -466,11 +446,10 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		r := mustNewDeepSeekRestructurer(t, "test-api-key",
 			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("Base prompt.", nil)),
 			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "en")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("en"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -494,11 +473,10 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		r := mustNewDeepSeekRestructurer(t, "test-api-key",
 			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithDeepSeekMaxRetries(0),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
 			t.Fatal("expected error for empty choices")
 		}
@@ -518,10 +496,9 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		r := mustNewDeepSeekRestructurer(t, "test-api-key",
 			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -542,11 +519,10 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		r := mustNewDeepSeekRestructurer(t, "test-api-key",
 			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithDeepSeekModel("deepseek-chat"),
 		)
 
-		_, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -627,12 +603,11 @@ func TestDeepSeekRestructurer_HTTPErrors(t *testing.T) {
 
 			r := mustNewDeepSeekRestructurer(t, "test-api-key",
 				restructure.WithDeepSeekBaseURL(server.URL),
-				restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
 				restructure.WithDeepSeekMaxRetries(2),
 				restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
 			)
 
-			result, err := r.Restructure(context.Background(), "transcript", "meeting", "")
+			result, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 
 			if tt.retryable {
 				// Should eventually succeed after retries
@@ -681,7 +656,6 @@ func TestDeepSeekRestructurer_WithMapReduce(t *testing.T) {
 
 		base := mustNewDeepSeekRestructurer(t, "test-api-key",
 			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("Base template prompt.", nil)),
 			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -694,7 +668,7 @@ func TestDeepSeekRestructurer_WithMapReduce(t *testing.T) {
 		para2 := strings.Repeat("b", 300) // ~100 tokens
 		transcript := para1 + "\n\n" + para2
 
-		result, usedMapReduce, err := mr.Restructure(context.Background(), transcript, "meeting", "")
+		result, usedMapReduce, err := mr.Restructure(context.Background(), transcript, template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -722,7 +696,6 @@ func TestDeepSeekRestructurer_WithMapReduce(t *testing.T) {
 
 		base := mustNewDeepSeekRestructurer(t, "test-api-key",
 			restructure.WithDeepSeekBaseURL(server.URL),
-			restructure.WithDeepSeekTemplateResolver(mockTemplateResolver("prompt", nil)),
 			restructure.WithDeepSeekRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -730,7 +703,7 @@ func TestDeepSeekRestructurer_WithMapReduce(t *testing.T) {
 			restructure.WithMapReduceMaxTokens(1000), // High limit
 		)
 
-		result, usedMapReduce, err := mr.Restructure(context.Background(), "Short transcript.", "meeting", "")
+		result, usedMapReduce, err := mr.Restructure(context.Background(), "Short transcript.", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

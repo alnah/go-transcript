@@ -4,16 +4,10 @@ package restructure
 // without modifying the public API.
 
 // OpenAI option exports for dependency injection in tests.
-var (
-	WithChatCompleter    = withChatCompleter
-	WithTemplateResolver = withTemplateResolver
-)
+var WithChatCompleter = withChatCompleter
 
 // DeepSeek option exports for dependency injection in tests.
-var (
-	WithDeepSeekHTTPClient       = withDeepSeekHTTPClient
-	WithDeepSeekTemplateResolver = withDeepSeekTemplateResolver
-)
+var WithDeepSeekHTTPClient = withDeepSeekHTTPClient
 
 // Function exports for unit testing internal logic.
 var (
