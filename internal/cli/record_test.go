@@ -297,9 +297,9 @@ func TestRunRecord_LoopbackRecorder(t *testing.T) {
 	}
 
 	opts := recordOptions{
-		duration: 5 * time.Minute,
-		output:   outputPath,
-		loopback: true,
+		duration:     5 * time.Minute,
+		output:       outputPath,
+		systemRecord: true,
 	}
 
 	err := RunRecord(context.Background(), env, opts)
@@ -629,7 +629,7 @@ func TestRecordCmd_MutuallyExclusiveFlags(t *testing.T) {
 	env, _ := testEnv()
 	cmd := RecordCmd(env)
 
-	cmd.SetArgs([]string{"-d", "30m", "--loopback", "--mix"})
+	cmd.SetArgs([]string{"-d", "30m", "--system-record", "--mix"})
 	err := cmd.Execute()
 
 	if err == nil {

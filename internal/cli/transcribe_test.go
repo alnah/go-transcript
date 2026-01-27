@@ -177,10 +177,10 @@ func TestRunTranscribe_OutputLangRequiresTemplate(t *testing.T) {
 
 	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "en", ProviderDeepSeek)
 	if err == nil {
-		t.Fatal("expected error when output-lang without template")
+		t.Fatal("expected error when --translate without template")
 	}
-	if !strings.Contains(err.Error(), "output-lang") || !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected output-lang/template error, got %v", err)
+	if !strings.Contains(err.Error(), "translate") || !strings.Contains(err.Error(), "template") {
+		t.Errorf("expected translate/template error, got %v", err)
 	}
 }
 
@@ -1077,7 +1077,7 @@ func TestRunTranscribe_ValidationOrder(t *testing.T) {
 				return path, env
 			},
 			outputLang:  "en",
-			wantContain: "output-lang", // Should fail before API key check
+			wantContain: "translate", // Should fail before API key check
 		},
 		{
 			name: "api_key_check_last",

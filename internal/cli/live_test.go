@@ -154,18 +154,79 @@ func TestRunLive_OutputLangRequiresTemplate(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider:   ProviderDeepSeek,
-		duration:   30 * time.Minute,
-		outputLang: "en",
+		provider:  ProviderDeepSeek,
+		duration:  30 * time.Minute,
+		translate: "en",
 		// No template
 	}
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when output-lang without template")
+		t.Fatal("expected error when --translate without template")
 	}
-	if !strings.Contains(err.Error(), "output-lang") || !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected output-lang/template error, got %v", err)
+	if !strings.Contains(err.Error(), "translate") || !strings.Contains(err.Error(), "template") {
+		t.Errorf("expected translate/template error, got %v", err)
+	}
+}
+
+func TestRunLive_KeepRawTranscriptRequiresTemplate(t *testing.T) {
+	t.Parallel()
+
+	outputDir := t.TempDir()
+
+	env := &Env{
+		Stderr:         &syncBuffer{},
+		Getenv:         defaultTestEnv,
+		Now:            fixedTime(time.Now()),
+		FFmpegResolver: &mockFFmpegResolver{},
+		ConfigLoader:   configWithOutputDir(outputDir),
+	}
+
+	opts := liveOptions{
+		provider:          ProviderDeepSeek,
+		duration:          30 * time.Minute,
+		keepRawTranscript: true,
+		// No template
+	}
+
+	err := RunLive(context.Background(), env, opts)
+	if err == nil {
+		t.Fatal("expected error when --keep-raw-transcript without template")
+	}
+	if !strings.Contains(err.Error(), "keep-raw-transcript") || !strings.Contains(err.Error(), "template") {
+		t.Errorf("expected keep-raw-transcript/template error, got %v", err)
+	}
+}
+
+func TestRunLive_KeepAllRequiresTemplate(t *testing.T) {
+	t.Parallel()
+
+	outputDir := t.TempDir()
+
+	env := &Env{
+		Stderr:         &syncBuffer{},
+		Getenv:         defaultTestEnv,
+		Now:            fixedTime(time.Now()),
+		FFmpegResolver: &mockFFmpegResolver{},
+		ConfigLoader:   configWithOutputDir(outputDir),
+	}
+
+	// Simulate --keep-all expansion: keepAudio=true, keepRawTranscript=true
+	opts := liveOptions{
+		provider:          ProviderDeepSeek,
+		duration:          30 * time.Minute,
+		keepAudio:         true,
+		keepRawTranscript: true,
+		// No template - should fail because keepRawTranscript requires template
+	}
+
+	err := RunLive(context.Background(), env, opts)
+	if err == nil {
+		t.Fatal("expected error when --keep-all (expanded) without template")
+	}
+	// Error will mention keep-raw-transcript since that's what's validated
+	if !strings.Contains(err.Error(), "keep-raw-transcript") || !strings.Contains(err.Error(), "template") {
+		t.Errorf("expected keep-raw-transcript/template error, got %v", err)
 	}
 }
 
@@ -616,9 +677,9 @@ func TestRunLive_LoopbackMode(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
-		duration: 10 * time.Minute,
-		loopback: true,
+		provider:     ProviderDeepSeek,
+		duration:     10 * time.Minute,
+		systemRecord: true,
 	}
 
 	// Note: This will fail at loopback detection since we don't mock audio.DetectLoopbackDevice
@@ -716,7 +777,7 @@ func TestLiveCmd_MutuallyExclusiveFlags(t *testing.T) {
 	env, _ := testEnv()
 	cmd := LiveCmd(env)
 
-	cmd.SetArgs([]string{"-d", "30m", "--loopback", "--mix"})
+	cmd.SetArgs([]string{"-d", "30m", "--system-record", "--mix"})
 	err := cmd.Execute()
 
 	if err == nil {
