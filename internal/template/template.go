@@ -17,6 +17,77 @@ const (
 	Notes      = "notes"
 )
 
+// ---------------------------------------------------------------------------
+// Name type - represents a validated template name
+// ---------------------------------------------------------------------------
+
+// Name represents a validated template name.
+// Zero value is invalid and must not be used with Prompt().
+// Use ParseName to create from user input, or the pre-parsed constants.
+type Name struct {
+	name string
+}
+
+// Pre-parsed template name constants for use in code.
+// These avoid parsing overhead and provide compile-time safety.
+var (
+	BrainstormName = Name{name: Brainstorm}
+	MeetingName    = Name{name: Meeting}
+	LectureName    = Name{name: Lecture}
+	NotesName      = Name{name: Notes}
+)
+
+// ParseName validates and parses a template name string.
+// Returns ErrUnknown if the name is not recognized.
+// Empty string returns an error (unlike Language where empty means auto-detect).
+func ParseName(s string) (Name, error) {
+	if s == "" {
+		return Name{}, fmt.Errorf("template name cannot be empty: %w", ErrUnknown)
+	}
+	if _, ok := templates[s]; !ok {
+		return Name{}, fmt.Errorf("unknown template %q: %w", s, ErrUnknown)
+	}
+	return Name{name: s}, nil
+}
+
+// MustParseName parses a template name, panicking if invalid.
+// Use only for compile-time constants and tests.
+func MustParseName(s string) Name {
+	n, err := ParseName(s)
+	if err != nil {
+		panic(err)
+	}
+	return n
+}
+
+// String returns the template name string.
+// Returns empty string for zero value.
+func (n Name) String() string {
+	return n.name
+}
+
+// IsZero returns true if this is the zero value (no template set).
+// Unlike Language.IsZero() which represents valid "auto-detect" mode,
+// Name.IsZero() indicates no template was specified. In CLI commands,
+// this means "skip restructuring" (raw transcript output).
+// Calling Prompt() on a zero Name will panic.
+func (n Name) IsZero() bool {
+	return n.name == ""
+}
+
+// Prompt returns the prompt string for this template.
+// Panics if called on zero value.
+func (n Name) Prompt() string {
+	if n.name == "" {
+		panic("template.Name.Prompt called on zero value")
+	}
+	return templates[n.name]
+}
+
+// ---------------------------------------------------------------------------
+// Legacy API (deprecated - use Name type instead)
+// ---------------------------------------------------------------------------
+
 // templateOrder defines the canonical order for Names().
 // This order matches the spec and is used for CLI help and error messages.
 var templateOrder = []string{
@@ -37,6 +108,8 @@ var templates = map[string]string{
 
 // Get returns the prompt for the given template name.
 // Returns ErrUnknown if the name is not recognized.
+//
+// Deprecated: Use ParseName(name).Prompt() instead.
 func Get(name string) (string, error) {
 	prompt, ok := templates[name]
 	if !ok {
