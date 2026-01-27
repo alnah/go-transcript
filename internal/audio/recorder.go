@@ -127,7 +127,7 @@ func NewFFmpegRecorder(ffmpegPath, device string, opts ...RecorderOption) (*FFmp
 // It auto-detects the loopback device (BlackHole on macOS, PulseAudio monitor on Linux,
 // Stereo Mix or virtual-audio-capturer on Windows).
 // Returns ErrLoopbackNotFound with installation instructions if no device found.
-func NewFFmpegLoopbackRecorder(ctx context.Context, ffmpegPath string) (*FFmpegRecorder, error) {
+func NewFFmpegLoopbackRecorder(ctx context.Context, ffmpegPath string, opts ...RecorderOption) (*FFmpegRecorder, error) {
 	if ffmpegPath == "" {
 		return nil, fmt.Errorf("ffmpegPath cannot be empty: %w", ffmpeg.ErrNotFound)
 	}
@@ -137,18 +137,24 @@ func NewFFmpegLoopbackRecorder(ctx context.Context, ffmpegPath string) (*FFmpegR
 		return nil, err
 	}
 
-	return &FFmpegRecorder{
-		ffmpegPath:  ffmpegPath,
-		device:      loopback.name,
-		captureMode: CaptureLoopback,
-		loopback:    loopback,
-	}, nil
+	rec := &FFmpegRecorder{
+		ffmpegPath:   ffmpegPath,
+		device:       loopback.name,
+		captureMode:  CaptureLoopback,
+		loopback:     loopback,
+		ffmpegRunner: defaultFFmpegRunner{},
+		pactlRunner:  defaultPactlRunner{},
+	}
+	for _, opt := range opts {
+		opt(rec)
+	}
+	return rec, nil
 }
 
 // NewFFmpegMixRecorder creates a recorder that captures both microphone and system audio.
 // This is useful for recording video calls where you want both your voice and the remote audio.
 // Returns ErrLoopbackNotFound if the loopback device is not available.
-func NewFFmpegMixRecorder(ctx context.Context, ffmpegPath, micDevice string) (*FFmpegRecorder, error) {
+func NewFFmpegMixRecorder(ctx context.Context, ffmpegPath, micDevice string, opts ...RecorderOption) (*FFmpegRecorder, error) {
 	if ffmpegPath == "" {
 		return nil, fmt.Errorf("ffmpegPath cannot be empty: %w", ffmpeg.ErrNotFound)
 	}
@@ -158,12 +164,18 @@ func NewFFmpegMixRecorder(ctx context.Context, ffmpegPath, micDevice string) (*F
 		return nil, err
 	}
 
-	return &FFmpegRecorder{
-		ffmpegPath:  ffmpegPath,
-		device:      micDevice, // Will be resolved in Record()
-		captureMode: CaptureMix,
-		loopback:    loopback,
-	}, nil
+	rec := &FFmpegRecorder{
+		ffmpegPath:   ffmpegPath,
+		device:       micDevice, // Will be resolved in Record()
+		captureMode:  CaptureMix,
+		loopback:     loopback,
+		ffmpegRunner: defaultFFmpegRunner{},
+		pactlRunner:  defaultPactlRunner{},
+	}
+	for _, opt := range opts {
+		opt(rec)
+	}
+	return rec, nil
 }
 
 // Record records audio for the specified duration and writes to output.
