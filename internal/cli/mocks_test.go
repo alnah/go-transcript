@@ -7,7 +7,9 @@ import (
 
 	"github.com/alnah/go-transcript/internal/audio"
 	"github.com/alnah/go-transcript/internal/config"
+	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/restructure"
+	"github.com/alnah/go-transcript/internal/template"
 	"github.com/alnah/go-transcript/internal/transcribe"
 )
 
@@ -138,7 +140,7 @@ func (m *mockTranscriber) TranscribeCalls() []transcribeCall {
 // ---------------------------------------------------------------------------
 
 type mockRestructurerFactory struct {
-	NewMapReducerFunc func(provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error)
+	NewMapReducerFunc func(provider Provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error)
 	NewMapReducerErr  error // Error to return from NewMapReducer
 
 	mu                 sync.Mutex
@@ -147,11 +149,11 @@ type mockRestructurerFactory struct {
 }
 
 type mapReducerCall struct {
-	Provider string
+	Provider Provider
 	APIKey   string
 }
 
-func (m *mockRestructurerFactory) NewMapReducer(provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error) {
+func (m *mockRestructurerFactory) NewMapReducer(provider Provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error) {
 	m.mu.Lock()
 	m.newMapReducerCalls = append(m.newMapReducerCalls, mapReducerCall{Provider: provider, APIKey: apiKey})
 	m.mu.Unlock()
@@ -366,7 +368,7 @@ func (m *mockRecorder) RecordCalls() []recordCall {
 // ---------------------------------------------------------------------------
 
 type mockMapReduceRestructurer struct {
-	RestructureFunc func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error)
+	RestructureFunc func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error)
 
 	mu               sync.Mutex
 	restructureCalls []mapReduceRestructureCall
@@ -374,21 +376,21 @@ type mockMapReduceRestructurer struct {
 
 type mapReduceRestructureCall struct {
 	Transcript   string
-	TemplateName string
-	OutputLang   string
+	TemplateName template.Name
+	OutputLang   lang.Language
 }
 
-func (m *mockMapReduceRestructurer) Restructure(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+func (m *mockMapReduceRestructurer) Restructure(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 	m.mu.Lock()
 	m.restructureCalls = append(m.restructureCalls, mapReduceRestructureCall{
 		Transcript:   transcript,
-		TemplateName: templateName,
+		TemplateName: tmpl,
 		OutputLang:   outputLang,
 	})
 	m.mu.Unlock()
 
 	if m.RestructureFunc != nil {
-		return m.RestructureFunc(ctx, transcript, templateName, outputLang)
+		return m.RestructureFunc(ctx, transcript, tmpl, outputLang)
 	}
 	return "restructured text", false, nil
 }

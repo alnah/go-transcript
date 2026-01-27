@@ -4,54 +4,46 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/restructure"
+	"github.com/alnah/go-transcript/internal/template"
 )
 
 // RestructureOptions configures transcript restructuring.
 type RestructureOptions struct {
-	// Template name (required): brainstorm, meeting, lecture, notes
-	Template string
-	// LLM provider: "deepseek" (default) or "openai"
-	Provider string
-	// Output language (optional): ISO 639-1 code, empty = English
-	OutputLang string
+	// Template (required): validated template name
+	Template template.Name
+	// Provider (required): validated LLM provider
+	Provider Provider
+	// Output language (optional): zero value = English (template's native language)
+	OutputLang lang.Language
 	// Optional progress callback for long transcripts
 	OnProgress func(phase string, current, total int)
 }
 
 // restructureContent transforms content using a template and LLM.
 // Resolves API key internally based on opts.Provider.
-// Returns template.ErrUnknown if template is invalid.
-// Returns ErrUnsupportedProvider if provider is invalid.
+// Template and Provider must be validated before calling this function.
 func restructureContent(ctx context.Context, env *Env, content string, opts RestructureOptions) (string, error) {
-	// 1. Default provider
-	if opts.Provider == "" {
-		opts.Provider = ProviderDeepSeek
-	}
+	// 1. Default provider to DeepSeek if not specified
+	opts.Provider = opts.Provider.OrDefault()
 
-	// 2. Validate provider and resolve API key
+	// 2. Resolve API key based on provider
 	var apiKey string
-	switch opts.Provider {
-	case ProviderDeepSeek:
+	if opts.Provider.IsDeepSeek() {
 		apiKey = env.Getenv(EnvDeepSeekAPIKey)
 		if apiKey == "" {
 			return "", fmt.Errorf("%w (set it with: export %s=sk-...)", ErrDeepSeekKeyMissing, EnvDeepSeekAPIKey)
 		}
-	case ProviderOpenAI:
+	} else if opts.Provider.IsOpenAI() {
 		apiKey = env.Getenv(EnvOpenAIAPIKey)
 		if apiKey == "" {
 			return "", fmt.Errorf("%w (set it with: export %s=sk-...)", ErrAPIKeyMissing, EnvOpenAIAPIKey)
 		}
-	default:
-		return "", ErrUnsupportedProvider
 	}
+	// Note: invalid provider case is now impossible since Provider type guarantees validity
 
-	// 3. Validate template (empty check - actual template validation done by MapReducer)
-	if opts.Template == "" {
-		return "", fmt.Errorf("template is required for restructuring")
-	}
-
-	// 4. Create restructurer with options
+	// 3. Create restructurer with options
 	var mrOpts []restructure.MapReduceOption
 	if opts.OnProgress != nil {
 		mrOpts = append(mrOpts, restructure.WithMapReduceProgress(opts.OnProgress))
@@ -62,7 +54,7 @@ func restructureContent(ctx context.Context, env *Env, content string, opts Rest
 		return "", err
 	}
 
-	// 5. Restructure content
+	// 4. Restructure content
 	result, _, err := mr.Restructure(ctx, content, opts.Template, opts.OutputLang)
 	return result, err
 }

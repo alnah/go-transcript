@@ -59,5 +59,20 @@ var DeriveStructuredOutputPath = deriveStructuredOutputPath
 // RunStructure exports runStructure for testing.
 var RunStructure = runStructure
 
+// ParseStructureOptions exports parseStructureOptions for testing.
+var ParseStructureOptions = parseStructureOptions
+
+// StructureOptions exports structureOptions for testing.
+type StructureOptions = structureOptions
+
 // RestructureContent exports restructureContent for testing.
 var RestructureContent = restructureContent
+
+// RunTranscribe exports runTranscribe for testing.
+var RunTranscribe = runTranscribe
+
+// ParseTranscribeOptions exports parseTranscribeOptions for testing.
+var ParseTranscribeOptions = parseTranscribeOptions
+
+// TranscribeOptions exports transcribeOptions for testing.
+type TranscribeOptions = transcribeOptions

@@ -66,9 +66,9 @@ const (
 // RestructurerFactory creates restructurers for transcript formatting.
 type RestructurerFactory interface {
 	// NewMapReducer creates a MapReducer configured with the given provider, API key, and options.
-	// provider must be ProviderDeepSeek or ProviderOpenAI.
+	// Provider must be a valid Provider (DeepSeekProvider or OpenAIProvider).
 	// This is the primary method for creating restructurers in CLI commands.
-	NewMapReducer(provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error)
+	NewMapReducer(provider Provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error)
 }
 
 // ChunkerFactory creates audio chunkers.
@@ -206,24 +206,29 @@ func (defaultTranscriberFactory) NewTranscriber(apiKey string) transcribe.Transc
 // defaultRestructurerFactory implements RestructurerFactory with provider selection.
 type defaultRestructurerFactory struct{}
 
-// ErrUnsupportedProvider indicates an invalid provider was specified.
+// ErrUnsupportedProvider indicates an unknown provider was passed to the factory.
+// With the Provider type, this error is only reachable if:
+// 1. A zero-value Provider is passed without defaulting
+// 2. The Provider type is extended but the factory is not updated
+// Normal CLI flows default zero providers to DeepSeek before calling the factory.
 var ErrUnsupportedProvider = fmt.Errorf("unsupported provider (use %q or %q)", ProviderDeepSeek, ProviderOpenAI)
 
-func (defaultRestructurerFactory) NewMapReducer(provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error) {
-	switch provider {
-	case ProviderDeepSeek:
+func (defaultRestructurerFactory) NewMapReducer(provider Provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error) {
+	switch {
+	case provider.IsDeepSeek():
 		base, err := restructure.NewDeepSeekRestructurer(apiKey)
 		if err != nil {
 			return nil, err
 		}
 		return restructure.NewMapReduceRestructurer(base, opts...), nil
-	case ProviderOpenAI:
+	case provider.IsOpenAI():
 		client := openai.NewClient(apiKey)
 		base := restructure.NewOpenAIRestructurer(client)
 		return restructure.NewMapReduceRestructurer(base, opts...), nil
 	default:
-		// Defensive: callers validate provider, but protect against direct factory use
-		return nil, ErrUnsupportedProvider
+		// Defensive: Provider type guarantees validity, but handle zero value
+		// or future provider additions gracefully.
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedProvider, provider)
 	}
 }
 
