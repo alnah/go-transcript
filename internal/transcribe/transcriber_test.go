@@ -13,6 +13,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/alnah/go-transcript/internal/audio"
+	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/transcribe"
 )
 
@@ -221,7 +222,7 @@ func TestTranscribe_Success(t *testing.T) {
 		tr := transcribe.NewTestTranscriber(mock)
 
 		_, err := tr.Transcribe(context.Background(), "audio.mp3", transcribe.Options{
-			Language: "fr-FR", // Should be converted to "fr"
+			Language: lang.MustParse("fr-FR"), // Should be converted to "fr"
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

@@ -133,10 +133,9 @@ type Options struct {
 	// Note: Prompt can also hint at the language if Language is not set.
 	Prompt string
 
-	// Language specifies the audio language using ISO 639-1 or 639-3 codes.
-	// Examples: "en", "fr", "es", "zh"
-	// Empty string means auto-detect (recommended for most use cases).
-	Language string
+	// Language specifies the audio language.
+	// Zero value means auto-detect (recommended for most use cases).
+	Language lang.Language
 }
 
 // Transcriber transcribes audio files to text.
@@ -225,7 +224,7 @@ func (t *OpenAITranscriber) Transcribe(ctx context.Context, audioPath string, op
 		FilePath: audioPath,
 		Format:   format,
 		Prompt:   opts.Prompt,
-		Language: lang.BaseCode(opts.Language), // OpenAI only accepts ISO 639-1 base codes
+		Language: opts.Language.BaseCode(), // OpenAI only accepts ISO 639-1 base codes
 	}
 
 	return t.transcribeWithRetry(ctx, req, opts.Diarize)
