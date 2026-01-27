@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/alnah/go-transcript/internal/audio"
+	"github.com/alnah/go-transcript/internal/lang"
+	"github.com/alnah/go-transcript/internal/template"
 	"github.com/alnah/go-transcript/internal/transcribe"
 )
 
@@ -74,7 +76,7 @@ func TestRunLive_MissingAPIKey(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
 	}
 
@@ -87,58 +89,13 @@ func TestRunLive_MissingAPIKey(t *testing.T) {
 	}
 }
 
-func TestRunLive_InvalidTemplate(t *testing.T) {
-	t.Parallel()
+// Note: TestRunLive_InvalidTemplate was removed because with the new template.Name type,
+// invalid templates are caught at parse time in the CLI layer (RunE via template.ParseName()),
+// not in RunLive. The type system now guarantees that only valid templates reach RunLive.
 
-	outputDir := t.TempDir()
-
-	env := &Env{
-		Stderr:         &syncBuffer{},
-		Getenv:         defaultTestEnv,
-		Now:            fixedTime(time.Now()),
-		FFmpegResolver: &mockFFmpegResolver{},
-		ConfigLoader:   configWithOutputDir(outputDir),
-	}
-
-	opts := liveOptions{
-		provider: ProviderDeepSeek,
-		duration: 30 * time.Minute,
-		template: "nonexistent-template",
-	}
-
-	err := RunLive(context.Background(), env, opts)
-	if err == nil {
-		t.Fatal("expected error for invalid template")
-	}
-	if !strings.Contains(err.Error(), "unknown") && !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected template error, got %v", err)
-	}
-}
-
-func TestRunLive_InvalidLanguage(t *testing.T) {
-	t.Parallel()
-
-	outputDir := t.TempDir()
-
-	env := &Env{
-		Stderr:         &syncBuffer{},
-		Getenv:         defaultTestEnv,
-		Now:            fixedTime(time.Now()),
-		FFmpegResolver: &mockFFmpegResolver{},
-		ConfigLoader:   configWithOutputDir(outputDir),
-	}
-
-	opts := liveOptions{
-		provider: ProviderDeepSeek,
-		duration: 30 * time.Minute,
-		language: "invalid-lang",
-	}
-
-	err := RunLive(context.Background(), env, opts)
-	if err == nil {
-		t.Fatal("expected error for invalid language")
-	}
-}
+// Note: TestRunLive_InvalidLanguage was removed because with the new lang.Language type,
+// invalid languages are caught at parse time in the CLI layer (RunE via lang.Parse()),
+// not in RunLive. The type system now guarantees that only valid languages reach RunLive.
 
 func TestRunLive_OutputLangRequiresTemplate(t *testing.T) {
 	t.Parallel()
@@ -154,9 +111,9 @@ func TestRunLive_OutputLangRequiresTemplate(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider:  ProviderDeepSeek,
+		provider:  DeepSeekProvider,
 		duration:  30 * time.Minute,
-		translate: "en",
+		translate: lang.MustParse("en"),
 		// No template
 	}
 
@@ -183,7 +140,7 @@ func TestRunLive_KeepRawTranscriptRequiresTemplate(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider:          ProviderDeepSeek,
+		provider:          DeepSeekProvider,
 		duration:          30 * time.Minute,
 		keepRawTranscript: true,
 		// No template
@@ -213,7 +170,7 @@ func TestRunLive_KeepAllRequiresTemplate(t *testing.T) {
 
 	// Simulate --keep-all expansion: keepAudio=true, keepRawTranscript=true
 	opts := liveOptions{
-		provider:          ProviderDeepSeek,
+		provider:          DeepSeekProvider,
 		duration:          30 * time.Minute,
 		keepAudio:         true,
 		keepRawTranscript: true,
@@ -250,7 +207,7 @@ func TestRunLive_OutputExists(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
 		output:   outputPath,
 	}
@@ -285,7 +242,7 @@ func TestRunLive_AudioOutputExists_KeepAudio(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider:  ProviderDeepSeek,
+		provider:  DeepSeekProvider,
 		duration:  30 * time.Minute,
 		output:    outputPath,
 		keepAudio: true,
@@ -321,7 +278,7 @@ func TestRunLive_FFmpegResolveFails(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
 	}
 
@@ -399,7 +356,7 @@ func TestRunLive_Success(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
 	}
 
@@ -488,7 +445,7 @@ func TestRunLive_WithKeepAudio(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider:  ProviderDeepSeek,
+		provider:  DeepSeekProvider,
 		duration:  30 * time.Minute,
 		keepAudio: true,
 	}
@@ -538,7 +495,7 @@ func TestRunLive_RecordFails(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
 	}
 
@@ -607,7 +564,7 @@ func TestRunLive_TranscribeFails(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
 	}
 
@@ -677,7 +634,7 @@ func TestRunLive_LoopbackMode(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider:     ProviderDeepSeek,
+		provider:     DeepSeekProvider,
 		duration:     10 * time.Minute,
 		systemRecord: true,
 	}
@@ -720,7 +677,7 @@ func TestRunLive_EmptyRecording(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
 	}
 
@@ -837,10 +794,10 @@ func TestRunLive_WithTemplate(t *testing.T) {
 		},
 	}
 
-	var capturedTemplate string
+	var capturedTemplate template.Name
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
-			capturedTemplate = templateName
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
+			capturedTemplate = tmpl
 			return "# Meeting Notes\n\nRestructured content.", false, nil
 		},
 	}
@@ -861,9 +818,9 @@ func TestRunLive_WithTemplate(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
-		template: "meeting",
+		template: template.MustParseName("meeting"),
 	}
 
 	err := RunLive(context.Background(), env, opts)
@@ -872,7 +829,7 @@ func TestRunLive_WithTemplate(t *testing.T) {
 	}
 
 	// Verify template was passed correctly
-	if capturedTemplate != "meeting" {
+	if capturedTemplate.String() != "meeting" {
 		t.Errorf("expected template 'meeting', got %q", capturedTemplate)
 	}
 
@@ -939,7 +896,7 @@ func TestRunLive_RestructureError(t *testing.T) {
 
 	restructureErr := errors.New("restructure API failed")
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "", false, restructureErr
 		},
 	}
@@ -960,9 +917,9 @@ func TestRunLive_RestructureError(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider:  ProviderDeepSeek,
+		provider:  DeepSeekProvider,
 		duration:  30 * time.Minute,
-		template:  "brainstorm",
+		template:  template.MustParseName("brainstorm"),
 		keepAudio: true, // To verify warning message
 	}
 
@@ -1227,34 +1184,7 @@ func TestLiveWritePhase_InvalidPath(t *testing.T) {
 // Tests for provider flag
 // ---------------------------------------------------------------------------
 
-func TestRunLive_InvalidProvider(t *testing.T) {
-	t.Parallel()
-
-	outputDir := t.TempDir()
-
-	env := &Env{
-		Stderr:         &syncBuffer{},
-		Getenv:         defaultTestEnv,
-		Now:            fixedTime(time.Now()),
-		FFmpegResolver: &mockFFmpegResolver{},
-		ConfigLoader:   configWithOutputDir(outputDir),
-	}
-
-	opts := liveOptions{
-		provider: "invalid-provider",
-		duration: 30 * time.Minute,
-	}
-
-	err := RunLive(context.Background(), env, opts)
-	if err == nil {
-		t.Fatal("expected error for invalid provider")
-	}
-	if !errors.Is(err, ErrUnsupportedProvider) {
-		t.Errorf("expected ErrUnsupportedProvider, got %v", err)
-	}
-}
-
-func TestRunLive_ProviderDeepSeek_MissingKey(t *testing.T) {
+func TestRunLive_DeepSeekProvider_MissingKey(t *testing.T) {
 	t.Parallel()
 
 	outputDir := t.TempDir()
@@ -1274,9 +1204,9 @@ func TestRunLive_ProviderDeepSeek_MissingKey(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
-		template: "brainstorm", // Template triggers restructuring
+		template: template.MustParseName("brainstorm"), // Template triggers restructuring
 	}
 
 	err := RunLive(context.Background(), env, opts)
@@ -1288,7 +1218,7 @@ func TestRunLive_ProviderDeepSeek_MissingKey(t *testing.T) {
 	}
 }
 
-func TestRunLive_ProviderOpenAI_ReusesKey(t *testing.T) {
+func TestRunLive_OpenAIProvider_ReusesKey(t *testing.T) {
 	t.Parallel()
 
 	outputDir := t.TempDir()
@@ -1333,7 +1263,7 @@ func TestRunLive_ProviderOpenAI_ReusesKey(t *testing.T) {
 	}
 
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "restructured", false, nil
 		},
 	}
@@ -1360,9 +1290,9 @@ func TestRunLive_ProviderOpenAI_ReusesKey(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderOpenAI,
+		provider: OpenAIProvider,
 		duration: 30 * time.Minute,
-		template: "brainstorm", // Template triggers restructuring
+		template: template.MustParseName("brainstorm"), // Template triggers restructuring
 	}
 
 	// Use OpenAI provider - should NOT require DeepSeek key
@@ -1417,7 +1347,7 @@ func TestRunLive_ProviderPassedToFactory(t *testing.T) {
 	}
 
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "restructured", false, nil
 		},
 	}
@@ -1438,9 +1368,9 @@ func TestRunLive_ProviderPassedToFactory(t *testing.T) {
 	}
 
 	opts := liveOptions{
-		provider: ProviderDeepSeek,
+		provider: DeepSeekProvider,
 		duration: 30 * time.Minute,
-		template: "brainstorm",
+		template: template.MustParseName("brainstorm"),
 	}
 
 	err := RunLive(context.Background(), env, opts)
@@ -1453,7 +1383,7 @@ func TestRunLive_ProviderPassedToFactory(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 NewMapReducer call, got %d", len(calls))
 	}
-	if calls[0].Provider != ProviderDeepSeek {
-		t.Errorf("expected provider %q, got %q", ProviderDeepSeek, calls[0].Provider)
+	if calls[0].Provider != DeepSeekProvider {
+		t.Errorf("expected provider %q, got %q", DeepSeekProvider, calls[0].Provider)
 	}
 }

@@ -71,6 +71,34 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 				return fmt.Errorf("duration must be positive: %w", ErrInvalidDuration)
 			}
 
+			// Parse language flags at the boundary.
+			parsedLanguage, err := lang.Parse(language)
+			if err != nil {
+				return err
+			}
+			parsedTranslate, err := lang.Parse(translate)
+			if err != nil {
+				return err
+			}
+
+			// Parse template at the boundary (empty string is allowed - means no restructuring).
+			var parsedTemplate template.Name
+			if tmpl != "" {
+				parsedTemplate, err = template.ParseName(tmpl)
+				if err != nil {
+					return err
+				}
+			}
+
+			// Parse provider at the boundary (empty string defaults to DeepSeek).
+			var parsedProvider Provider
+			if provider != "" {
+				parsedProvider, err = ParseProvider(provider)
+				if err != nil {
+					return err
+				}
+			}
+
 			// Note: output path resolution (including output-dir) is done in runLive.
 			// --keep-all expands to --keep-audio + --keep-raw-transcript
 			effectiveKeepAudio := keepAudio || keepAll
@@ -79,7 +107,7 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 			return runLive(cmd.Context(), env, liveOptions{
 				duration:          duration,
 				output:            output,
-				template:          tmpl,
+				template:          parsedTemplate,
 				diarize:           diarize,
 				parallel:          parallel,
 				keepAudio:         effectiveKeepAudio,
@@ -87,9 +115,9 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 				device:            device,
 				systemRecord:      systemRecord,
 				mix:               mix,
-				language:          language,
-				translate:         translate,
-				provider:          provider,
+				language:          parsedLanguage,
+				translate:         parsedTranslate,
+				provider:          parsedProvider,
 			})
 		},
 	}
@@ -127,7 +155,7 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 type liveOptions struct {
 	duration          time.Duration
 	output            string // Markdown output path
-	template          string
+	template          template.Name
 	diarize           bool
 	parallel          int
 	keepAudio         bool
@@ -135,9 +163,9 @@ type liveOptions struct {
 	device            string
 	systemRecord      bool // Capture system audio instead of microphone (-s)
 	mix               bool
-	language          string // Audio input language (ISO 639-1)
-	translate         string // Output language for restructuring (-T)
-	provider          string // LLM provider for restructuring (deepseek or openai)
+	language          lang.Language // Audio input language
+	translate         lang.Language // Output language for restructuring (-T)
+	provider          Provider      // LLM provider for restructuring
 }
 
 // audioOutputPath derives the audio file path from the markdown output path.
@@ -163,9 +191,9 @@ func defaultLiveFilename(now func() time.Time) string {
 // liveContext holds validated context for live command execution.
 // This is separate from cli.Env to hold command-specific resolved values.
 type liveContext struct {
-	openaiKey           string // OpenAI API key (always needed for transcription)
-	restructureAPIKey   string // API key for restructuring (depends on provider)
-	restructureProvider string // LLM provider for restructuring
+	openaiKey           string   // OpenAI API key (always needed for transcription)
+	restructureAPIKey   string   // API key for restructuring (depends on provider)
+	restructureProvider Provider // LLM provider for restructuring
 	ffmpegPath          string
 	audioPath           string // Final audio path (if --keep-audio / -k)
 	rawTranscriptPath   string // Path for raw transcript (if --keep-raw-transcript / -r)
@@ -174,10 +202,8 @@ type liveContext struct {
 
 // validateLiveContext performs fail-fast validation before any I/O.
 func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*liveContext, error) {
-	// 1. Provider validation
-	if opts.provider != ProviderDeepSeek && opts.provider != ProviderOpenAI {
-		return nil, ErrUnsupportedProvider
-	}
+	// 1. Provider defaulting (validation done at parse time in RunE)
+	provider := opts.provider.OrDefault()
 
 	// 2. OpenAI API key present (always needed for transcription)
 	openaiKey := env.Getenv(EnvOpenAIAPIKey)
@@ -187,14 +213,14 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 
 	// 3. Restructuring API key (only if template specified)
 	var restructureAPIKey string
-	if opts.template != "" {
-		switch opts.provider {
-		case ProviderDeepSeek:
+	if !opts.template.IsZero() {
+		switch {
+		case provider.IsDeepSeek():
 			restructureAPIKey = env.Getenv(EnvDeepSeekAPIKey)
 			if restructureAPIKey == "" {
 				return nil, fmt.Errorf("%w (set it with: export %s=sk-...)", ErrDeepSeekKeyMissing, EnvDeepSeekAPIKey)
 			}
-		case ProviderOpenAI:
+		case provider.IsOpenAI():
 			restructureAPIKey = openaiKey // Reuse OpenAI key
 		}
 	}
@@ -206,28 +232,17 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 	}
 	env.FFmpegResolver.CheckVersion(ctx, ffmpegPath)
 
-	// 5. Template valid (if specified)
-	if opts.template != "" {
-		if _, err := template.Get(opts.template); err != nil {
-			return nil, err
-		}
-	}
+	// 5. Template validation: already done at parse time (template.ParseName in RunE)
 
-	// 6. Language validation
-	if err := lang.Validate(opts.language); err != nil {
-		return nil, err
-	}
-	if err := lang.Validate(opts.translate); err != nil {
-		return nil, err
-	}
+	// 6. Language validation: already done at parse time (lang.Parse in RunE)
 
 	// 7. Translate requires template
-	if opts.translate != "" && opts.template == "" {
+	if !opts.translate.IsZero() && opts.template.IsZero() {
 		return nil, fmt.Errorf("--translate requires --template (raw transcripts use the audio's language)")
 	}
 
 	// 7b. Keep raw transcript requires template
-	if opts.keepRawTranscript && opts.template == "" {
+	if opts.keepRawTranscript && opts.template.IsZero() {
 		return nil, fmt.Errorf("--keep-raw-transcript requires --template (without template, output is already the raw transcript)")
 	}
 
@@ -262,7 +277,7 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 	return &liveContext{
 		openaiKey:           openaiKey,
 		restructureAPIKey:   restructureAPIKey,
-		restructureProvider: opts.provider,
+		restructureProvider: provider,
 		ffmpegPath:          ffmpegPath,
 		audioPath:           audioPath,
 		rawTranscriptPath:   rawPath,
@@ -384,7 +399,7 @@ func liveTranscribePhase(ctx context.Context, env *Env, lctx *liveContext, opts 
 // liveRestructurePhase optionally restructures the transcript.
 // If opts.keepRawTranscript is true, saves the raw transcript before restructuring.
 func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts liveOptions, transcript, audioPath string) (string, error) {
-	if opts.template == "" {
+	if opts.template.IsZero() {
 		return transcript, nil
 	}
 
@@ -399,7 +414,7 @@ func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts
 
 	// Default output language to input language if not specified
 	effectiveOutputLang := opts.translate
-	if effectiveOutputLang == "" && opts.language != "" {
+	if effectiveOutputLang.IsZero() && !opts.language.IsZero() {
 		effectiveOutputLang = opts.language
 	}
 
