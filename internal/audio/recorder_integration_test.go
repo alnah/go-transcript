@@ -186,7 +186,9 @@ func TestNewFFmpegMixRecorder_AcceptsOptions(t *testing.T) {
 		},
 	}
 
-	rec, err := audio.NewFFmpegMixRecorder(ctx, ffmpegPath, "", audio.ExportedWithFFmpegRunner(mockRunner))
+	// Use explicit mic device ":0" to avoid auto-detection which would call
+	// RunOutput (not mocked here). The test verifies option injection, not device detection.
+	rec, err := audio.NewFFmpegMixRecorder(ctx, ffmpegPath, ":0", audio.ExportedWithFFmpegRunner(mockRunner))
 	if err != nil {
 		t.Skipf("skipping: no loopback device available: %v", err)
 	}
