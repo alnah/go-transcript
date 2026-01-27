@@ -14,6 +14,15 @@ import (
 	"github.com/alnah/go-transcript/internal/template"
 )
 
+// structureOptions holds validated options for the structure command.
+type structureOptions struct {
+	inputPath  string
+	output     string
+	template   template.Name
+	outputLang lang.Language
+	provider   Provider
+}
+
 // StructureCmd creates the structure command (restructure an existing transcript).
 // The env parameter provides injectable dependencies for testing.
 func StructureCmd(env *Env) *cobra.Command {
@@ -39,7 +48,12 @@ Restructuring uses DeepSeek by default, or OpenAI with --provider openai.`,
   transcript structure raw.md -t notes --provider openai`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStructure(cmd, env, args[0], output, tmpl, outputLang, provider)
+			// Parse all inputs at the CLI boundary
+			opts, err := parseStructureOptions(args[0], output, tmpl, outputLang, provider)
+			if err != nil {
+				return err
+			}
+			return runStructure(cmd, env, opts)
 		},
 	}
 
@@ -66,16 +80,49 @@ func deriveStructuredOutputPath(inputPath string) string {
 	return base + "_structured" + ext
 }
 
-// runStructure executes the structure command.
-func runStructure(cmd *cobra.Command, env *Env, inputPath, output, tmpl, outputLang, provider string) error {
+// parseStructureOptions validates and parses CLI inputs into structureOptions.
+// All parsing happens at the CLI boundary.
+func parseStructureOptions(inputPath, output, tmpl, outputLang, provider string) (structureOptions, error) {
+	// Parse template (required for structure command)
+	parsedTemplate, err := template.ParseName(tmpl)
+	if err != nil {
+		return structureOptions{}, err
+	}
+
+	// Parse output language (optional)
+	parsedOutputLang, err := lang.Parse(outputLang)
+	if err != nil {
+		return structureOptions{}, err
+	}
+
+	// Parse provider (optional, defaults handled in runStructure)
+	var parsedProvider Provider
+	if provider != "" {
+		parsedProvider, err = ParseProvider(provider)
+		if err != nil {
+			return structureOptions{}, err
+		}
+	}
+
+	return structureOptions{
+		inputPath:  inputPath,
+		output:     output,
+		template:   parsedTemplate,
+		outputLang: parsedOutputLang,
+		provider:   parsedProvider,
+	}, nil
+}
+
+// runStructure executes the structure command with validated options.
+func runStructure(cmd *cobra.Command, env *Env, opts structureOptions) error {
 	ctx := cmd.Context()
 
 	// === VALIDATION (fail-fast) ===
 
 	// 1. File exists
-	if _, err := os.Stat(inputPath); err != nil {
+	if _, err := os.Stat(opts.inputPath); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("file not found: %s", inputPath)
+			return fmt.Errorf("file not found: %s", opts.inputPath)
 		}
 		return fmt.Errorf("cannot access file: %w", err)
 	}
@@ -87,47 +134,35 @@ func runStructure(cmd *cobra.Command, env *Env, inputPath, output, tmpl, outputL
 	}
 
 	// 3. Resolve output path (derive default from input basename only)
-	defaultOutput := deriveStructuredOutputPath(filepath.Base(inputPath))
-	output = config.ResolveOutputPath(output, cfg.OutputDir, defaultOutput)
+	defaultOutput := deriveStructuredOutputPath(filepath.Base(opts.inputPath))
+	output := config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultOutput)
 
-	// 4. Provider validation
-	if provider != ProviderDeepSeek && provider != ProviderOpenAI {
-		return ErrUnsupportedProvider
-	}
-
-	// 5. Template validation
-	if _, err := template.Get(tmpl); err != nil {
-		return err
-	}
-
-	// 6. Language validation
-	if err := lang.Validate(outputLang); err != nil {
-		return err
-	}
+	// 4. Provider defaulting
+	provider := opts.provider.OrDefault()
 
 	// === READ INPUT ===
 
-	fmt.Fprintf(env.Stderr, "Reading %s...\n", inputPath)
+	fmt.Fprintf(env.Stderr, "Reading %s...\n", opts.inputPath)
 
 	// #nosec G304 -- inputPath is user-provided, validated above
-	content, err := os.ReadFile(inputPath)
+	content, err := os.ReadFile(opts.inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
 	transcript := string(content)
 	if strings.TrimSpace(transcript) == "" {
-		return fmt.Errorf("input file is empty: %s", inputPath)
+		return fmt.Errorf("input file is empty: %s", opts.inputPath)
 	}
 
 	// === RESTRUCTURE ===
 
-	fmt.Fprintf(env.Stderr, "Restructuring with template '%s' (provider: %s)...\n", tmpl, provider)
+	fmt.Fprintf(env.Stderr, "Restructuring with template '%s' (provider: %s)...\n", opts.template, provider)
 
 	result, err := restructureContent(ctx, env, transcript, RestructureOptions{
-		Template:   tmpl,
+		Template:   opts.template,
 		Provider:   provider,
-		OutputLang: outputLang,
+		OutputLang: opts.outputLang,
 		OnProgress: func(phase string, current, total int) {
 			if phase == "map" {
 				fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)

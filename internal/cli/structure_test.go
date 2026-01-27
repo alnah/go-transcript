@@ -11,11 +11,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/alnah/go-transcript/internal/config"
+	"github.com/alnah/go-transcript/internal/lang"
+	"github.com/alnah/go-transcript/internal/template"
 )
 
 // Notes:
 // - Tests focus on observable behavior through public APIs (runStructure, StructureCmd)
-// - Internal validation order is tested via error types, not implementation details
 // - File I/O is tested with real temp files; restructuring uses mocks
 // - The mockRestructurerFactory from mocks_test.go is reused for consistency
 
@@ -47,6 +48,88 @@ func TestDeriveStructuredOutputPath(t *testing.T) {
 			result := DeriveStructuredOutputPath(tt.input)
 			if result != tt.expected {
 				t.Errorf("DeriveStructuredOutputPath(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests for ParseStructureOptions - CLI input parsing and validation
+// ---------------------------------------------------------------------------
+
+func TestParseStructureOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		inputPath  string
+		output     string
+		tmpl       string
+		outputLang string
+		provider   string
+		wantErr    bool
+		errContain string
+	}{
+		{
+			name:      "valid minimal options",
+			inputPath: "/path/to/file.md",
+			tmpl:      "brainstorm",
+			provider:  "deepseek",
+			wantErr:   false,
+		},
+		{
+			name:       "valid with all options",
+			inputPath:  "/path/to/file.md",
+			output:     "/output/file.md",
+			tmpl:       "meeting",
+			outputLang: "fr",
+			provider:   "openai",
+			wantErr:    false,
+		},
+		{
+			name:       "invalid template",
+			inputPath:  "/path/to/file.md",
+			tmpl:       "nonexistent-template",
+			provider:   "deepseek",
+			wantErr:    true,
+			errContain: "unknown",
+		},
+		{
+			name:       "invalid language",
+			inputPath:  "/path/to/file.md",
+			tmpl:       "brainstorm",
+			outputLang: "invalid-lang-code-too-long",
+			provider:   "deepseek",
+			wantErr:    true,
+		},
+		{
+			name:       "invalid provider",
+			inputPath:  "/path/to/file.md",
+			tmpl:       "brainstorm",
+			provider:   "invalid-provider",
+			wantErr:    true,
+			errContain: "invalid provider",
+		},
+		{
+			name:      "empty provider uses default",
+			inputPath: "/path/to/file.md",
+			tmpl:      "brainstorm",
+			provider:  "",
+			wantErr:   false, // Empty provider is allowed - defaults to DeepSeek
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := ParseStructureOptions(tt.inputPath, tt.output, tt.tmpl, tt.outputLang, tt.provider)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseStructureOptions() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errContain != "" && !strings.Contains(err.Error(), tt.errContain) {
+				t.Errorf("ParseStructureOptions() error = %v, want error containing %q", err, tt.errContain)
 			}
 		})
 	}
@@ -97,7 +180,7 @@ func TestStructureCmd_DefaultProvider(t *testing.T) {
 	outputPath := filepath.Join(outputDir, "output.md")
 
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "restructured", false, nil
 		},
 	}
@@ -126,8 +209,8 @@ func TestStructureCmd_DefaultProvider(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 NewMapReducer call, got %d", len(calls))
 	}
-	if calls[0].Provider != ProviderDeepSeek {
-		t.Errorf("expected default provider %q, got %q", ProviderDeepSeek, calls[0].Provider)
+	if calls[0].Provider != DeepSeekProvider {
+		t.Errorf("expected default provider %q, got %q", DeepSeekProvider, calls[0].Provider)
 	}
 }
 
@@ -153,13 +236,24 @@ func createTestTranscriptFile(t *testing.T, content string) string {
 	return path
 }
 
+// mustParseStructureOptions is a test helper that parses options or fails the test.
+func mustParseStructureOptions(t *testing.T, inputPath, output, tmpl, outputLang, provider string) StructureOptions {
+	t.Helper()
+	opts, err := ParseStructureOptions(inputPath, output, tmpl, outputLang, provider)
+	if err != nil {
+		t.Fatalf("ParseStructureOptions failed: %v", err)
+	}
+	return opts
+}
+
 func TestRunStructure_FileNotFound(t *testing.T) {
 	t.Parallel()
 
 	env, _ := testEnv()
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, "/nonexistent/file.md", "", "brainstorm", "", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, "/nonexistent/file.md", "", "brainstorm", "", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
 	}
@@ -176,7 +270,8 @@ func TestRunStructure_EmptyFile(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, "", "brainstorm", "", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, inputPath, "", "brainstorm", "", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for empty file")
 	}
@@ -193,7 +288,8 @@ func TestRunStructure_WhitespaceOnlyFile(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, "", "brainstorm", "", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, inputPath, "", "brainstorm", "", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for whitespace-only file")
 	}
@@ -217,60 +313,13 @@ func TestRunStructure_OutputExists(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, outputPath, "brainstorm", "", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for existing output file")
 	}
 	if !errors.Is(err, ErrOutputExists) {
 		t.Errorf("expected ErrOutputExists, got %v", err)
-	}
-}
-
-func TestRunStructure_InvalidProvider(t *testing.T) {
-	t.Parallel()
-
-	inputPath := createTestTranscriptFile(t, "test content")
-
-	env, _ := testEnv()
-	cmd := createStructureCmd(context.Background())
-
-	err := RunStructure(cmd, env, inputPath, "", "brainstorm", "", "invalid-provider")
-	if err == nil {
-		t.Fatal("expected error for invalid provider")
-	}
-	if !errors.Is(err, ErrUnsupportedProvider) {
-		t.Errorf("expected ErrUnsupportedProvider, got %v", err)
-	}
-}
-
-func TestRunStructure_InvalidTemplate(t *testing.T) {
-	t.Parallel()
-
-	inputPath := createTestTranscriptFile(t, "test content")
-
-	env, _ := testEnv()
-	cmd := createStructureCmd(context.Background())
-
-	err := RunStructure(cmd, env, inputPath, "", "nonexistent-template", "", ProviderDeepSeek)
-	if err == nil {
-		t.Fatal("expected error for invalid template")
-	}
-	if !strings.Contains(err.Error(), "unknown") && !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected template error, got %v", err)
-	}
-}
-
-func TestRunStructure_InvalidLanguage(t *testing.T) {
-	t.Parallel()
-
-	inputPath := createTestTranscriptFile(t, "test content")
-
-	env, _ := testEnv()
-	cmd := createStructureCmd(context.Background())
-
-	err := RunStructure(cmd, env, inputPath, "", "brainstorm", "invalid-lang-code-too-long", ProviderDeepSeek)
-	if err == nil {
-		t.Fatal("expected error for invalid language")
 	}
 }
 
@@ -294,7 +343,8 @@ func TestRunStructure_MissingDeepSeekKey(t *testing.T) {
 	}
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, outputPath, "brainstorm", "", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for missing DeepSeek API key")
 	}
@@ -323,7 +373,8 @@ func TestRunStructure_MissingOpenAIKey(t *testing.T) {
 	}
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, outputPath, "brainstorm", "", ProviderOpenAI)
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "openai")
+	err := RunStructure(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for missing OpenAI API key")
 	}
@@ -341,7 +392,7 @@ func TestRunStructure_Success(t *testing.T) {
 	stderr := &syncBuffer{}
 
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "# Restructured Output\n\nKey ideas here.", false, nil
 		},
 	}
@@ -357,7 +408,8 @@ func TestRunStructure_Success(t *testing.T) {
 	}
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, outputPath, "brainstorm", "", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -392,7 +444,7 @@ func TestRunStructure_SuccessWithOpenAI(t *testing.T) {
 	outputPath := filepath.Join(outputDir, "output.md")
 
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "restructured", false, nil
 		},
 	}
@@ -414,7 +466,8 @@ func TestRunStructure_SuccessWithOpenAI(t *testing.T) {
 	}
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, outputPath, "meeting", "", ProviderOpenAI)
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "meeting", "", "openai")
+	err := RunStructure(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error with OpenAI provider, got %v", err)
 	}
@@ -424,8 +477,8 @@ func TestRunStructure_SuccessWithOpenAI(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 NewMapReducer call, got %d", len(calls))
 	}
-	if calls[0].Provider != ProviderOpenAI {
-		t.Errorf("expected provider %q, got %q", ProviderOpenAI, calls[0].Provider)
+	if calls[0].Provider != OpenAIProvider {
+		t.Errorf("expected provider %q, got %q", OpenAIProvider, calls[0].Provider)
 	}
 }
 
@@ -436,9 +489,9 @@ func TestRunStructure_WithOutputLang(t *testing.T) {
 	outputDir := t.TempDir()
 	outputPath := filepath.Join(outputDir, "output.md")
 
-	var capturedLang string
+	var capturedLang lang.Language
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			capturedLang = outputLang
 			return "restructured", false, nil
 		},
@@ -455,13 +508,14 @@ func TestRunStructure_WithOutputLang(t *testing.T) {
 	}
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, outputPath, "meeting", "fr", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "meeting", "fr", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if capturedLang != "fr" {
-		t.Errorf("expected output lang 'fr', got %q", capturedLang)
+	if capturedLang.String() != "fr" {
+		t.Errorf("expected output lang 'fr', got %q", capturedLang.String())
 	}
 }
 
@@ -474,7 +528,7 @@ func TestRunStructure_RestructureError(t *testing.T) {
 
 	restructureErr := errors.New("API error during restructuring")
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "", false, restructureErr
 		},
 	}
@@ -490,7 +544,8 @@ func TestRunStructure_RestructureError(t *testing.T) {
 	}
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, outputPath, "brainstorm", "", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error when restructuring fails")
 	}
@@ -511,7 +566,7 @@ func TestRunStructure_DefaultOutputPath(t *testing.T) {
 	outputDir := t.TempDir()
 
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "restructured", false, nil
 		},
 	}
@@ -534,7 +589,8 @@ func TestRunStructure_DefaultOutputPath(t *testing.T) {
 	cmd := createStructureCmd(context.Background())
 
 	// Empty output path - should derive from input and use output-dir
-	err := RunStructure(cmd, env, inputPath, "", "brainstorm", "", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, inputPath, "", "brainstorm", "", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -555,7 +611,7 @@ func TestRunStructure_ProgressCallback(t *testing.T) {
 	stderr := &syncBuffer{}
 
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "restructured", false, nil
 		},
 	}
@@ -571,7 +627,8 @@ func TestRunStructure_ProgressCallback(t *testing.T) {
 	}
 	cmd := createStructureCmd(context.Background())
 
-	err := RunStructure(cmd, env, inputPath, outputPath, "brainstorm", "", ProviderDeepSeek)
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
+	err := RunStructure(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -584,92 +641,25 @@ func TestRunStructure_ProgressCallback(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests for validation order
+// Tests for validation order in runStructure
 // ---------------------------------------------------------------------------
 
 func TestRunStructure_ValidationOrder(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		setup       func(t *testing.T) (inputPath string, env *Env)
-		output      string
-		template    string
-		outputLang  string
-		provider    string
-		wantErr     error
-		wantContain string
-	}{
-		{
-			name: "file_not_found_first",
-			setup: func(t *testing.T) (string, *Env) {
-				env, _ := testEnv()
-				return "/nonexistent/path.md", env
-			},
-			template:    "brainstorm",
-			provider:    ProviderDeepSeek,
-			wantContain: "not found",
-		},
-		{
-			name: "output_check_before_provider",
-			setup: func(t *testing.T) (string, *Env) {
-				inputPath := createTestTranscriptFile(t, "content")
-				outputDir := t.TempDir()
-				outputPath := filepath.Join(outputDir, "existing.md")
-				if err := os.WriteFile(outputPath, []byte("existing"), 0644); err != nil {
-					t.Fatal(err)
-				}
-				env, _ := testEnv()
-				return inputPath, env
-			},
-			output:   "", // Will be auto-derived but we need to test with explicit existing
-			template: "brainstorm",
-			provider: "invalid",              // Invalid provider, but output check should come first
-			wantErr:  ErrUnsupportedProvider, // Actually provider is checked before template
-		},
-		{
-			name: "provider_check_before_template",
-			setup: func(t *testing.T) (string, *Env) {
-				inputPath := createTestTranscriptFile(t, "content")
-				env, _ := testEnv()
-				return inputPath, env
-			},
-			template: "invalid-template",
-			provider: "invalid-provider",
-			wantErr:  ErrUnsupportedProvider,
-		},
-		{
-			name: "template_check_before_language",
-			setup: func(t *testing.T) (string, *Env) {
-				inputPath := createTestTranscriptFile(t, "content")
-				env, _ := testEnv()
-				return inputPath, env
-			},
-			template:    "invalid-template",
-			outputLang:  "invalid-lang",
-			provider:    ProviderDeepSeek,
-			wantContain: "unknown",
-		},
-	}
+	t.Run("file_not_found_first", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		env, _ := testEnv()
+		cmd := createStructureCmd(context.Background())
 
-			inputPath, env := tt.setup(t)
-			cmd := createStructureCmd(context.Background())
-
-			err := RunStructure(cmd, env, inputPath, tt.output, tt.template, tt.outputLang, tt.provider)
-			if err == nil {
-				t.Fatal("expected error")
-			}
-
-			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
-				t.Errorf("expected error %v, got %v", tt.wantErr, err)
-			}
-			if tt.wantContain != "" && !strings.Contains(err.Error(), tt.wantContain) {
-				t.Errorf("expected error containing %q, got %v", tt.wantContain, err)
-			}
-		})
-	}
+		opts := mustParseStructureOptions(t, "/nonexistent/path.md", "", "brainstorm", "", "deepseek")
+		err := RunStructure(cmd, env, opts)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "not found") {
+			t.Errorf("expected 'not found' error, got %v", err)
+		}
+	})
 }
