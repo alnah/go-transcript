@@ -369,6 +369,11 @@ Use `-K` (or `--keep-all`) to preserve intermediate files:
 transcript live -d 1h -t meeting -K -o meeting.md
 ```
 
+This produces three files:
+- `meeting.md` - the restructured output
+- `meeting.ogg` - the audio recording (from `-k`)
+- `meeting_raw.md` - the raw transcript before restructuring (from `-r`)
+
 This allows you to:
 - **Re-transcribe** if the initial transcription quality is poor
 - **Re-restructure** with a different template without re-transcribing
