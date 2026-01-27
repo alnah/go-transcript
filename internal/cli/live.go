@@ -17,7 +17,6 @@ import (
 	"github.com/alnah/go-transcript/internal/format"
 	"github.com/alnah/go-transcript/internal/interrupt"
 	"github.com/alnah/go-transcript/internal/lang"
-	"github.com/alnah/go-transcript/internal/restructure"
 	"github.com/alnah/go-transcript/internal/template"
 	"github.com/alnah/go-transcript/internal/transcribe"
 )
@@ -26,18 +25,19 @@ import (
 // The env parameter provides injectable dependencies for testing.
 func LiveCmd(env *Env) *cobra.Command {
 	var (
-		durationStr string
-		output      string
-		tmpl        string
-		diarize     bool
-		parallel    int
-		keepAudio   bool
-		device      string
-		loopback    bool
-		mix         bool
-		language    string
-		outputLang  string
-		provider    string
+		durationStr    string
+		output         string
+		tmpl           string
+		diarize        bool
+		parallel       int
+		keepAudio      bool
+		keepTranscript bool
+		device         string
+		loopback       bool
+		mix            bool
+		language       string
+		outputLang     string
+		provider       string
 	)
 
 	cmd := &cobra.Command{
@@ -72,18 +72,19 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 
 			// Note: output path resolution (including output-dir) is done in runLive.
 			return runLive(cmd.Context(), env, liveOptions{
-				duration:   duration,
-				output:     output,
-				template:   tmpl,
-				diarize:    diarize,
-				parallel:   parallel,
-				keepAudio:  keepAudio,
-				device:     device,
-				loopback:   loopback,
-				mix:        mix,
-				language:   language,
-				outputLang: outputLang,
-				provider:   provider,
+				duration:       duration,
+				output:         output,
+				template:       tmpl,
+				diarize:        diarize,
+				parallel:       parallel,
+				keepAudio:      keepAudio,
+				keepTranscript: keepTranscript,
+				device:         device,
+				loopback:       loopback,
+				mix:            mix,
+				language:       language,
+				outputLang:     outputLang,
+				provider:       provider,
 			})
 		},
 	}
@@ -105,6 +106,7 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 
 	// Live-specific flags.
 	cmd.Flags().BoolVarP(&keepAudio, "keep-audio", "k", false, "Keep the audio file after transcription")
+	cmd.Flags().BoolVar(&keepTranscript, "keep-transcript", false, "Keep raw transcript before restructuring (requires --template)")
 
 	// Duration is required.
 	_ = cmd.MarkFlagRequired("duration")
@@ -117,18 +119,19 @@ Press Ctrl+C twice within 2 seconds to abort entirely.`,
 
 // liveOptions holds validated options for the live command.
 type liveOptions struct {
-	duration   time.Duration
-	output     string // Markdown output path
-	template   string
-	diarize    bool
-	parallel   int
-	keepAudio  bool
-	device     string
-	loopback   bool
-	mix        bool
-	language   string // Audio input language (ISO 639-1)
-	outputLang string // Output language for restructuring
-	provider   string // LLM provider for restructuring (deepseek or openai)
+	duration       time.Duration
+	output         string // Markdown output path
+	template       string
+	diarize        bool
+	parallel       int
+	keepAudio      bool
+	keepTranscript bool // Keep raw transcript when using --template
+	device         string
+	loopback       bool
+	mix            bool
+	language       string // Audio input language (ISO 639-1)
+	outputLang     string // Output language for restructuring
+	provider       string // LLM provider for restructuring (deepseek or openai)
 }
 
 // audioOutputPath derives the audio file path from the markdown output path.
@@ -136,6 +139,13 @@ type liveOptions struct {
 func audioOutputPath(mdPath string) string {
 	ext := filepath.Ext(mdPath)
 	return strings.TrimSuffix(mdPath, ext) + ".ogg"
+}
+
+// rawTranscriptPath derives the raw transcript path from the final output path.
+// Example: "notes.md" -> "notes_raw.md"
+func rawTranscriptPath(mdPath string) string {
+	ext := filepath.Ext(mdPath)
+	return strings.TrimSuffix(mdPath, ext) + "_raw" + ext
 }
 
 // defaultLiveFilename generates a default output filename with timestamp.
@@ -152,6 +162,7 @@ type liveContext struct {
 	restructureProvider string // LLM provider for restructuring
 	ffmpegPath          string
 	audioPath           string // Final audio path (if --keep-audio)
+	rawTranscriptPath   string // Path for raw transcript (if --keep-transcript)
 	parallel            int
 }
 
@@ -209,6 +220,11 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 		return nil, fmt.Errorf("--output-lang requires --template (raw transcripts use the audio's language)")
 	}
 
+	// 7b. Keep transcript requires template
+	if opts.keepTranscript && opts.template == "" {
+		return nil, fmt.Errorf("--keep-transcript requires --template (without template, output is already the raw transcript)")
+	}
+
 	// 8. Output file doesn't exist
 	if _, err := os.Stat(opts.output); err == nil {
 		return nil, fmt.Errorf("output file already exists: %s: %w", opts.output, ErrOutputExists)
@@ -219,6 +235,14 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 	if opts.keepAudio {
 		if _, err := os.Stat(audioPath); err == nil {
 			return nil, fmt.Errorf("audio file already exists: %s: %w", audioPath, ErrOutputExists)
+		}
+	}
+
+	// 9b. Raw transcript path doesn't exist (if --keep-transcript)
+	rawPath := rawTranscriptPath(opts.output)
+	if opts.keepTranscript {
+		if _, err := os.Stat(rawPath); err == nil {
+			return nil, fmt.Errorf("raw transcript file already exists: %s: %w", rawPath, ErrOutputExists)
 		}
 	}
 
@@ -235,6 +259,7 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 		restructureProvider: opts.provider,
 		ffmpegPath:          ffmpegPath,
 		audioPath:           audioPath,
+		rawTranscriptPath:   rawPath,
 		parallel:            clampParallel(opts.parallel),
 	}, nil
 }
@@ -351,9 +376,17 @@ func liveTranscribePhase(ctx context.Context, env *Env, lctx *liveContext, opts 
 }
 
 // liveRestructurePhase optionally restructures the transcript.
+// If opts.keepTranscript is true, saves the raw transcript before restructuring.
 func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts liveOptions, transcript, audioPath string) (string, error) {
 	if opts.template == "" {
 		return transcript, nil
+	}
+
+	// Save raw transcript if requested (before restructuring, so it's available on failure)
+	if opts.keepTranscript {
+		if err := writeRawTranscript(env, lctx.rawTranscriptPath, transcript); err != nil {
+			return "", err
+		}
 	}
 
 	fmt.Fprintf(env.Stderr, "Restructuring with template '%s' (provider: %s)...\n", opts.template, lctx.restructureProvider)
@@ -364,28 +397,57 @@ func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts
 		effectiveOutputLang = opts.language
 	}
 
-	mrRestructurer, err := env.RestructurerFactory.NewMapReducer(lctx.restructureProvider, lctx.restructureAPIKey,
-		restructure.WithMapReduceProgress(func(phase string, current, total int) {
+	result, err := restructureContent(ctx, env, transcript, RestructureOptions{
+		Template:   opts.template,
+		Provider:   lctx.restructureProvider,
+		OutputLang: effectiveOutputLang,
+		OnProgress: func(phase string, current, total int) {
 			if phase == "map" {
 				fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)
 			} else {
 				fmt.Fprintln(env.Stderr, "  Merging parts...")
 			}
-		}),
-	)
-	if err != nil {
-		return "", err
-	}
-
-	result, _, err := mrRestructurer.Restructure(ctx, transcript, opts.template, effectiveOutputLang)
+		},
+	})
 	if err != nil {
 		if opts.keepAudio {
 			fmt.Fprintf(env.Stderr, "\nRestructuring failed. Audio is available at: %s\n", audioPath)
+		}
+		if opts.keepTranscript {
+			fmt.Fprintf(env.Stderr, "Raw transcript is available at: %s\n", lctx.rawTranscriptPath)
 		}
 		return "", err
 	}
 
 	return result, nil
+}
+
+// writeRawTranscript saves the raw transcript to a file.
+func writeRawTranscript(env *Env, path, content string) error {
+	// #nosec G302 G304 -- user-specified output file with standard permissions
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("raw transcript file already exists: %s: %w", path, ErrOutputExists)
+		}
+		return fmt.Errorf("cannot create raw transcript file: %w", err)
+	}
+
+	writeErr := func() error {
+		defer func() { _ = f.Close() }()
+		if _, err := f.WriteString(content); err != nil {
+			return fmt.Errorf("failed to write raw transcript: %w", err)
+		}
+		return nil
+	}()
+
+	if writeErr != nil {
+		_ = os.Remove(path)
+		return writeErr
+	}
+
+	fmt.Fprintf(env.Stderr, "Raw transcript saved: %s\n", path)
+	return nil
 }
 
 // liveWritePhase writes the final output atomically.
