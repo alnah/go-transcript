@@ -159,7 +159,7 @@ Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
 	}
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (default: <input>.md)")
-	cmd.Flags().StringVarP(&tmpl, "template", "t", "", "Restructure template: brainstorm, meeting, lecture")
+	cmd.Flags().StringVarP(&tmpl, "template", "t", "", "Restructure template: brainstorm, meeting, lecture, notes")
 	cmd.Flags().BoolVar(&diarize, "diarize", false, "Enable speaker identification")
 	cmd.Flags().IntVarP(&parallel, "parallel", "p", transcribe.MaxRecommendedParallel, "Max concurrent API requests (1-10)")
 	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
