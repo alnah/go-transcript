@@ -30,6 +30,8 @@ go-transcript/                  # CLI application
 │   │   ├── live.go             # `live` command (record + transcribe)
 │   │   ├── live_test.go
 │   │   ├── mocks_test.go       # Test mocks for factories
+│   │   ├── provider.go         # Provider type (validated LLM provider)
+│   │   ├── provider_test.go
 │   │   ├── record.go           # `record` command
 │   │   ├── record_test.go
 │   │   ├── restructure.go      # Shared restructuring logic

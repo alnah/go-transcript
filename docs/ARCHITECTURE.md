@@ -262,7 +262,7 @@ For long transcripts that exceed token limits:
 ├──────────────────────────────────────────────────────────┤
 │  cli.ErrAPIKeyMissing       - OPENAI_API_KEY not set     │
 │  cli.ErrDeepSeekKeyMissing  - DEEPSEEK_API_KEY not set   │
-│  cli.ErrUnsupportedProvider - Invalid provider name      │
+│  cli.ErrInvalidProvider     - Invalid provider name      │
 │  cli.ErrInvalidDuration     - Bad duration format        │
 │  cli.ErrUnsupportedFormat   - Unknown audio format       │
 │  cli.ErrFileNotFound        - Input file missing         │
