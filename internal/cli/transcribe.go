@@ -13,7 +13,6 @@ import (
 	"github.com/alnah/go-transcript/internal/audio"
 	"github.com/alnah/go-transcript/internal/config"
 	"github.com/alnah/go-transcript/internal/lang"
-	"github.com/alnah/go-transcript/internal/restructure"
 	"github.com/alnah/go-transcript/internal/template"
 	"github.com/alnah/go-transcript/internal/transcribe"
 )
@@ -175,17 +174,16 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 		return fmt.Errorf("%w (set it with: export %s=sk-...)", ErrAPIKeyMissing, EnvOpenAIAPIKey)
 	}
 
-	// 11. Restructuring API key (only if template specified)
-	var restructureAPIKey string
+	// 11. Restructuring API key validation (only if template specified)
+	// The actual key resolution is done in restructureContent()
 	if tmpl != "" {
 		switch provider {
 		case ProviderDeepSeek:
-			restructureAPIKey = env.Getenv(EnvDeepSeekAPIKey)
-			if restructureAPIKey == "" {
+			if env.Getenv(EnvDeepSeekAPIKey) == "" {
 				return fmt.Errorf("%w (set it with: export %s=sk-...)", ErrDeepSeekKeyMissing, EnvDeepSeekAPIKey)
 			}
 		case ProviderOpenAI:
-			restructureAPIKey = openaiKey // Reuse OpenAI key
+			// OpenAI key already validated above
 		}
 	}
 
@@ -251,20 +249,18 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 			effectiveOutputLang = language
 		}
 
-		mrRestructurer, err := env.RestructurerFactory.NewMapReducer(provider, restructureAPIKey,
-			restructure.WithMapReduceProgress(func(phase string, current, total int) {
+		finalOutput, err = restructureContent(ctx, env, transcript, RestructureOptions{
+			Template:   tmpl,
+			Provider:   provider,
+			OutputLang: effectiveOutputLang,
+			OnProgress: func(phase string, current, total int) {
 				if phase == "map" {
 					fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)
 				} else {
 					fmt.Fprintln(env.Stderr, "  Merging parts...")
 				}
-			}),
-		)
-		if err != nil {
-			return err
-		}
-
-		finalOutput, _, err = mrRestructurer.Restructure(ctx, transcript, tmpl, effectiveOutputLang)
+			},
+		})
 		if err != nil {
 			return err
 		}
