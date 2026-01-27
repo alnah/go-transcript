@@ -93,7 +93,7 @@ transcript live -d 1h -o meeting.md -t meeting
 transcript transcribe recording.ogg -o notes.md -t brainstorm
 
 # Record system audio (video call)
-transcript record -d 30m --loopback -o call.ogg
+transcript record -d 30m -s -o call.ogg
 
 # Restructure an existing transcript
 transcript structure raw_notes.md -t lecture -o lecture.md
@@ -125,11 +125,11 @@ transcript structure raw_notes.md -t lecture -o lecture.md
      │                                        └─────────────┘
      │
      ├── Microphone (default)
-     ├── System audio (--loopback)
+     ├── System audio (-s/--system-record)
      └── Both mixed (--mix)
 ```
 
-1. **Record**: Capture audio via FFmpeg (mic, loopback, or mixed)
+1. **Record**: Capture audio via FFmpeg (mic, system audio, or mixed)
 2. **Chunk**: Split at natural silences to respect OpenAI's 25MB limit
 3. **Transcribe**: Parallel API calls to OpenAI (`gpt-4o-mini-transcribe`)
 4. **Restructure** (optional): Format with template via DeepSeek or OpenAI
@@ -154,23 +154,23 @@ Commands:
 Record audio from microphone, system audio, or both.
 
 ```bash
-transcript record -d 2h -o session.ogg           # Microphone
-transcript record -d 30m --loopback -o system.ogg # System audio
-transcript record -d 1h --mix -o meeting.ogg      # Both mixed
+transcript record -d 2h -o session.ogg      # Microphone
+transcript record -d 30m -s -o system.ogg   # System audio
+transcript record -d 1h --mix -o meeting.ogg # Both mixed
 ```
 
 <details>
 <summary>All flags</summary>
 
-| Flag         | Short | Default                     | Description                                |
-|--------------|-------|-----------------------------|--------------------------------------------|
-| `--duration` | `-d`  | required                    | Recording duration (e.g., `30s`, `5m`, `2h`) |
-| `--output`   | `-o`  | `recording_<timestamp>.ogg` | Output file path                           |
-| `--device`   |       | system default              | Specific audio input device                |
-| `--loopback` |       | `false`                     | Capture system audio instead of microphone |
-| `--mix`      |       | `false`                     | Capture both microphone and system audio   |
+| Flag              | Short | Default                     | Description                                |
+|-------------------|-------|-----------------------------|--------------------------------------------|
+| `--duration`      | `-d`  | required                    | Recording duration (e.g., `30s`, `5m`, `2h`) |
+| `--output`        | `-o`  | `recording_<timestamp>.ogg` | Output file path                           |
+| `--device`        |       | system default              | Specific audio input device                |
+| `--system-record` | `-s`  | `false`                     | Capture system audio instead of microphone |
+| `--mix`           |       | `false`                     | Capture both microphone and system audio   |
 
-`--loopback` and `--mix` are mutually exclusive.
+`--system-record` and `--mix` are mutually exclusive.
 
 </details>
 
@@ -181,23 +181,23 @@ Transcribe an existing audio file.
 ```bash
 transcript transcribe audio.ogg -o notes.md
 transcript transcribe lecture.mp3 -o notes.md -t lecture
-transcript transcribe french.ogg -o notes.md -l fr --output-lang en -t meeting
+transcript transcribe french.ogg -o notes.md -l fr -T en -t meeting
 ```
 
 <details>
 <summary>All flags</summary>
 
-| Flag            | Short | Default       | Description                                                      |
-|-----------------|-------|---------------|------------------------------------------------------------------|
-| `--output`      | `-o`  | `<input>.md`  | Output file path                                                 |
-| `--template`    | `-t`  |               | Restructure template: `brainstorm`, `meeting`, `lecture`, `notes`|
-| `--provider`    |       | `deepseek`    | LLM provider for restructuring: `deepseek`, `openai`             |
-| `--language`    | `-l`  | auto-detect   | Audio language (ISO 639-1: `en`, `fr`, `pt-BR`)                  |
-| `--output-lang` |       | same as input | Output language for restructured text                            |
-| `--parallel`    | `-p`  | `10`          | Max concurrent API requests (1-10)                               |
-| `--diarize`     |       | `false`       | Enable speaker identification                                    |
+| Flag          | Short | Default       | Description                                                      |
+|---------------|-------|---------------|------------------------------------------------------------------|
+| `--output`    | `-o`  | `<input>.md`  | Output file path                                                 |
+| `--template`  | `-t`  |               | Restructure template: `brainstorm`, `meeting`, `lecture`, `notes`|
+| `--provider`  |       | `deepseek`    | LLM provider for restructuring: `deepseek`, `openai`             |
+| `--language`  | `-l`  | auto-detect   | Audio language (ISO 639-1: `en`, `fr`, `pt-BR`)                  |
+| `--translate` | `-T`  | same as input | Translate output to language (requires `--template`)             |
+| `--parallel`  | `-p`  | `10`          | Max concurrent API requests (1-10)                               |
+| `--diarize`   |       | `false`       | Enable speaker identification                                    |
 
-`--output-lang` requires `--template`.
+`--translate` requires `--template`.
 
 </details>
 
@@ -207,8 +207,9 @@ Record and transcribe in one step. Press Ctrl+C to stop recording early and cont
 
 ```bash
 transcript live -d 30m -o notes.md
-transcript live -d 1h -o meeting.md -t meeting --keep-audio
-transcript live -d 2h --mix -t meeting --diarize -o call.md
+transcript live -d 1h -o meeting.md -t meeting -k        # Keep audio
+transcript live -d 1h -s -t meeting                      # System audio
+transcript live -d 1h -t meeting -K                      # Keep audio + raw transcript
 ```
 
 <details>
@@ -216,10 +217,11 @@ transcript live -d 2h --mix -t meeting --diarize -o call.md
 
 Inherits all flags from `record` and `transcribe`, plus:
 
-| Flag               | Short | Default | Description                                                       |
-|--------------------|-------|---------|-------------------------------------------------------------------|
-| `--keep-audio`     | `-k`  | `false` | Preserve the audio file after transcription                       |
-| `--keep-transcript` |       | `false` | Keep raw transcript before restructuring (requires `--template`)  |
+| Flag                   | Short | Default | Description                                                      |
+|------------------------|-------|---------|------------------------------------------------------------------|
+| `--keep-audio`         | `-k`  | `false` | Preserve the audio file after transcription                      |
+| `--keep-raw-transcript`| `-r`  | `false` | Keep raw transcript before restructuring (requires `--template`) |
+| `--keep-all`           | `-K`  | `false` | Keep both audio and raw transcript (equivalent to `-k -r`)       |
 
 </details>
 
@@ -230,19 +232,19 @@ Restructure an existing transcript file using a template. Useful for re-processi
 ```bash
 transcript structure meeting_raw.md -t meeting -o meeting.md
 transcript structure notes.md -t brainstorm
-transcript structure lecture.md -t lecture --output-lang fr
+transcript structure lecture.md -t lecture -T fr    # Translate to French
 transcript structure raw.md -t notes --provider openai
 ```
 
 <details>
 <summary>All flags</summary>
 
-| Flag            | Short | Default                 | Description                                                       |
-|-----------------|-------|-------------------------|-------------------------------------------------------------------|
-| `--output`      | `-o`  | `<input>_structured.md` | Output file path                                                  |
-| `--template`    | `-t`  | required                | Restructure template: `brainstorm`, `meeting`, `lecture`, `notes` |
-| `--provider`    |       | `deepseek`              | LLM provider for restructuring: `deepseek`, `openai`              |
-| `--output-lang` |       | same as input           | Output language (ISO 639-1: `en`, `fr`, `pt-BR`)                  |
+| Flag          | Short | Default                 | Description                                                       |
+|---------------|-------|-------------------------|-------------------------------------------------------------------|
+| `--output`    | `-o`  | `<input>_structured.md` | Output file path                                                  |
+| `--template`  | `-t`  | required                | Restructure template: `brainstorm`, `meeting`, `lecture`, `notes` |
+| `--provider`  |       | `deepseek`              | LLM provider for restructuring: `deepseek`, `openai`              |
+| `--translate` | `-T`  | same as input           | Translate output to language (ISO 639-1: `en`, `fr`)              |
 
 </details>
 
@@ -322,10 +324,10 @@ Templates transform raw transcripts into structured markdown.
 | `lecture`    | Course/conference lectures | Readable prose with H1/H2/H3 headers, bold key terms          |
 | `notes`      | Bullet-point lecture notes | H2 thematic headers, hierarchical bullet points, bold terms   |
 
-Templates output English by default. Use `--output-lang` to translate:
+Templates output English by default. Use `--translate` / `-T` to translate:
 
 ```bash
-transcript transcribe audio.ogg -t meeting --output-lang fr
+transcript transcribe audio.ogg -t meeting -T fr
 ```
 
 ### Provider Selection
@@ -360,11 +362,11 @@ DeepSeek is **~10x cheaper** for restructuring with comparable quality. It's slo
 
 ### Best Practices
 
-Use `--keep-audio` and `--keep-transcript` to preserve intermediate files:
+Use `-K` (or `--keep-all`) to preserve intermediate files:
 
 ```bash
 # Keep both audio and raw transcript for re-processing
-transcript live -d 1h -t meeting --keep-audio --keep-transcript -o meeting.md
+transcript live -d 1h -t meeting -K -o meeting.md
 ```
 
 This allows you to:
