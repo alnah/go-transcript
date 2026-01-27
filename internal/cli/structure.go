@@ -35,7 +35,7 @@ and restructures it into organized markdown using an LLM.
 Restructuring uses DeepSeek by default, or OpenAI with --provider openai.`,
 		Example: `  transcript structure meeting_raw.md -t meeting -o meeting.md
   transcript structure notes.md -t brainstorm
-  transcript structure lecture.md -t lecture --output-lang fr
+  transcript structure lecture.md -t lecture -T fr  # Translate to French
   transcript structure raw.md -t notes --provider openai`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -45,7 +45,7 @@ Restructuring uses DeepSeek by default, or OpenAI with --provider openai.`,
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (default: <input>_structured.md)")
 	cmd.Flags().StringVarP(&tmpl, "template", "t", "", "Restructure template: brainstorm, meeting, lecture, notes (required)")
-	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language (ISO 639-1 code, e.g., en, fr, pt-BR)")
+	cmd.Flags().StringVarP(&outputLang, "translate", "T", "", "Translate output to language (ISO 639-1 code, e.g., en, fr)")
 	cmd.Flags().StringVar(&provider, "provider", ProviderDeepSeek, "LLM provider for restructuring: deepseek, openai")
 
 	// Template is required for structure command.

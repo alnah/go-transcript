@@ -88,8 +88,8 @@ Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
 		Example: `  transcript transcribe session.ogg -o notes.md -t brainstorm
   transcript transcribe meeting.ogg -t meeting --diarize
   transcript transcribe lecture.ogg -t lecture -l en
-  transcript transcribe session.ogg -l fr --output-lang en -t meeting
-  transcript transcribe session.ogg -t meeting --provider openai  # Use OpenAI for restructuring
+  transcript transcribe session.ogg -l fr -T en -t meeting  # French audio, English output
+  transcript transcribe session.ogg -t meeting --provider openai
   transcript transcribe session.ogg  # Raw transcript, no restructuring`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -102,7 +102,7 @@ Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
 	cmd.Flags().BoolVar(&diarize, "diarize", false, "Enable speaker identification")
 	cmd.Flags().IntVarP(&parallel, "parallel", "p", transcribe.MaxRecommendedParallel, "Max concurrent API requests (1-10)")
 	cmd.Flags().StringVarP(&language, "language", "l", "", "Audio language (ISO 639-1 code, e.g., en, fr, pt-BR)")
-	cmd.Flags().StringVar(&outputLang, "output-lang", "", "Output language for restructured text (requires --template)")
+	cmd.Flags().StringVarP(&outputLang, "translate", "T", "", "Translate output to language (ISO 639-1 code, requires --template)")
 	cmd.Flags().StringVar(&provider, "provider", ProviderDeepSeek, "LLM provider for restructuring: deepseek, openai")
 
 	return cmd
@@ -155,9 +155,9 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 		return err
 	}
 
-	// 7. Output language requires template
+	// 7. Translate requires template
 	if outputLang != "" && tmpl == "" {
-		return fmt.Errorf("--output-lang requires --template (raw transcripts use the audio's language)")
+		return fmt.Errorf("--translate requires --template (raw transcripts use the audio's language)")
 	}
 
 	// 8. Provider validation

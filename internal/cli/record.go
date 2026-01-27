@@ -17,33 +17,33 @@ import (
 
 // recordOptions holds the validated options for the record command.
 type recordOptions struct {
-	duration time.Duration
-	output   string
-	device   string
-	loopback bool
-	mix      bool
+	duration     time.Duration
+	output       string
+	device       string
+	systemRecord bool // Capture system audio instead of microphone (-s)
+	mix          bool
 }
 
 // RecordCmd creates the record command.
 // The env parameter provides injectable dependencies for testing.
 func RecordCmd(env *Env) *cobra.Command {
 	var (
-		durationStr string
-		output      string
-		device      string
-		loopback    bool
-		mix         bool
+		durationStr  string
+		output       string
+		device       string
+		systemRecord bool
+		mix          bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "record",
 		Short: "Record audio from microphone or system audio",
-		Long: `Record audio from microphone, system audio (loopback), or both mixed.
+		Long: `Record audio from microphone, system audio (--system-record), or both mixed.
 
 The output format is OGG Vorbis optimized for voice (~50kbps, 16kHz mono).
 Recording can be interrupted with Ctrl+C to stop early - the file will be properly finalized.`,
 		Example: `  transcript record -d 2h -o session.ogg           # Microphone only
-  transcript record -d 30m --loopback              # System audio only
+  transcript record -d 30m -s                      # System audio only
   transcript record -d 1h --mix -o meeting.ogg     # Mic + system audio`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Parse duration.
@@ -57,11 +57,11 @@ Recording can be interrupted with Ctrl+C to stop early - the file will be proper
 
 			// Note: output path resolution (including output-dir) is done in runRecord.
 			opts := recordOptions{
-				duration: duration,
-				output:   output,
-				device:   device,
-				loopback: loopback,
-				mix:      mix,
+				duration:     duration,
+				output:       output,
+				device:       device,
+				systemRecord: systemRecord,
+				mix:          mix,
 			}
 
 			return runRecord(cmd.Context(), env, opts)
@@ -72,14 +72,14 @@ Recording can be interrupted with Ctrl+C to stop early - the file will be proper
 	cmd.Flags().StringVarP(&durationStr, "duration", "d", "", "Recording duration (e.g., 2h, 30m, 1h30m)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (default: recording_<timestamp>.ogg)")
 	cmd.Flags().StringVar(&device, "device", "", "Audio input device (default: system default)")
-	cmd.Flags().BoolVar(&loopback, "loopback", false, "Capture system audio instead of microphone")
+	cmd.Flags().BoolVarP(&systemRecord, "system-record", "s", false, "Capture system audio instead of microphone")
 	cmd.Flags().BoolVar(&mix, "mix", false, "Capture both microphone and system audio")
 
 	// Duration is required.
 	_ = cmd.MarkFlagRequired("duration")
 
-	// Loopback and mix are mutually exclusive.
-	cmd.MarkFlagsMutuallyExclusive("loopback", "mix")
+	// System-record and mix are mutually exclusive.
+	cmd.MarkFlagsMutuallyExclusive("system-record", "mix")
 
 	return cmd
 }
@@ -116,7 +116,7 @@ func runRecord(ctx context.Context, env *Env, opts recordOptions) error {
 	env.FFmpegResolver.CheckVersion(ctx, ffmpegPath)
 
 	// Create the appropriate recorder.
-	recorder, err := createRecorder(ctx, env, ffmpegPath, opts.device, opts.loopback, opts.mix)
+	recorder, err := createRecorder(ctx, env, ffmpegPath, opts.device, opts.systemRecord, opts.mix)
 	if err != nil {
 		return err
 	}
@@ -146,9 +146,9 @@ func runRecord(ctx context.Context, env *Env, opts recordOptions) error {
 }
 
 // createRecorder creates the appropriate recorder based on capture mode.
-func createRecorder(ctx context.Context, env *Env, ffmpegPath, device string, loopback, mix bool) (audio.Recorder, error) {
+func createRecorder(ctx context.Context, env *Env, ffmpegPath, device string, systemRecord, mix bool) (audio.Recorder, error) {
 	switch {
-	case loopback:
+	case systemRecord:
 		return env.RecorderFactory.NewLoopbackRecorder(ctx, ffmpegPath)
 	case mix:
 		return env.RecorderFactory.NewMixRecorder(ctx, ffmpegPath, device)
