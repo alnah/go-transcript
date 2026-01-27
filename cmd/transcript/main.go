@@ -65,6 +65,7 @@ func main() {
 	rootCmd.AddCommand(cli.RecordCmd(env))
 	rootCmd.AddCommand(cli.TranscribeCmd(env))
 	rootCmd.AddCommand(cli.LiveCmd(env))
+	rootCmd.AddCommand(cli.StructureCmd(env))
 	rootCmd.AddCommand(cli.ConfigCmd(env))
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
