@@ -53,6 +53,62 @@ func clampParallel(n int) int {
 	return n
 }
 
+// transcribeOptions holds validated options for the transcribe command.
+type transcribeOptions struct {
+	inputPath  string
+	output     string
+	template   template.Name
+	diarize    bool
+	parallel   int
+	language   lang.Language
+	outputLang lang.Language
+	provider   Provider
+}
+
+// parseTranscribeOptions validates and parses CLI inputs into transcribeOptions.
+// All parsing happens at the CLI boundary.
+func parseTranscribeOptions(inputPath, output, tmpl string, diarize bool, parallel int, language, outputLang, provider string) (transcribeOptions, error) {
+	// Parse template (optional for transcribe - empty means raw transcript)
+	var parsedTemplate template.Name
+	var err error
+	if tmpl != "" {
+		parsedTemplate, err = template.ParseName(tmpl)
+		if err != nil {
+			return transcribeOptions{}, err
+		}
+	}
+
+	// Parse language flags
+	parsedLanguage, err := lang.Parse(language)
+	if err != nil {
+		return transcribeOptions{}, err
+	}
+	parsedOutputLang, err := lang.Parse(outputLang)
+	if err != nil {
+		return transcribeOptions{}, err
+	}
+
+	// Parse provider (optional, defaults handled in runTranscribe)
+	var parsedProvider Provider
+	if provider != "" {
+		parsedProvider, err = ParseProvider(provider)
+		if err != nil {
+			return transcribeOptions{}, err
+		}
+	}
+
+	return transcribeOptions{
+		inputPath:  inputPath,
+		output:     output,
+		template:   parsedTemplate,
+		diarize:    diarize,
+		parallel:   parallel,
+		language:   parsedLanguage,
+		outputLang: parsedOutputLang,
+		provider:   parsedProvider,
+	}, nil
+}
+
 // deriveOutputPath converts an audio file path to a markdown output path.
 // Example: "session.ogg" -> "session.md"
 func deriveOutputPath(inputPath string) string {
@@ -93,7 +149,12 @@ Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
   transcript transcribe session.ogg  # Raw transcript, no restructuring`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTranscribe(cmd, env, args[0], output, tmpl, diarize, parallel, language, outputLang, provider)
+			// Parse all inputs at the CLI boundary
+			opts, err := parseTranscribeOptions(args[0], output, tmpl, diarize, parallel, language, outputLang, provider)
+			if err != nil {
+				return err
+			}
+			return runTranscribe(cmd, env, opts)
 		},
 	}
 
@@ -108,23 +169,22 @@ Supported formats: ogg, mp3, wav, m4a, flac, mp4, mpeg, mpga, webm`,
 	return cmd
 }
 
-// runTranscribe executes the transcription pipeline.
-// Validation order: file exists -> format -> output -> template -> language -> provider -> parallel -> API keys
-func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string, diarize bool, parallel int, language, outputLang, provider string) error {
+// runTranscribe executes the transcription pipeline with validated options.
+func runTranscribe(cmd *cobra.Command, env *Env, opts transcribeOptions) error {
 	ctx := cmd.Context()
 
 	// === VALIDATION (fail-fast) ===
 
 	// 1. File exists
-	if _, err := os.Stat(inputPath); err != nil {
+	if _, err := os.Stat(opts.inputPath); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("%w: %s", ErrFileNotFound, inputPath)
+			return fmt.Errorf("%w: %s", ErrFileNotFound, opts.inputPath)
 		}
 		return fmt.Errorf("cannot access input file: %w", err)
 	}
 
 	// 2. Format supported
-	ext := strings.ToLower(filepath.Ext(inputPath))
+	ext := strings.ToLower(filepath.Ext(opts.inputPath))
 	if !supportedFormats[ext] {
 		return fmt.Errorf("unsupported format %q (supported: %s): %w",
 			ext, supportedFormatsList(), ErrUnsupportedFormat)
@@ -137,53 +197,32 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 	}
 
 	// 4. Output path (resolve with output-dir, derive default from input if needed)
-	defaultOutput := deriveOutputPath(filepath.Base(inputPath))
-	output = config.ResolveOutputPath(output, cfg.OutputDir, defaultOutput)
+	defaultOutput := deriveOutputPath(filepath.Base(opts.inputPath))
+	output := config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultOutput)
 
-	// 5. Template valid (if specified) - fail-fast before expensive operations
-	if tmpl != "" {
-		if _, err := template.Get(tmpl); err != nil {
-			return err
-		}
-	}
-
-	// 6. Language validation
-	if err := lang.Validate(language); err != nil {
-		return err
-	}
-	if err := lang.Validate(outputLang); err != nil {
-		return err
-	}
-
-	// 7. Translate requires template
-	if outputLang != "" && tmpl == "" {
+	// 5. Translate requires template
+	if !opts.outputLang.IsZero() && opts.template.IsZero() {
 		return fmt.Errorf("--translate requires --template (raw transcripts use the audio's language)")
 	}
 
-	// 8. Provider validation
-	if provider != ProviderDeepSeek && provider != ProviderOpenAI {
-		return ErrUnsupportedProvider
-	}
+	// 6. Provider defaulting
+	provider := opts.provider.OrDefault()
 
-	// 9. Parallel bounds (clamp to 1-10)
-	parallel = clampParallel(parallel)
+	// 7. Parallel bounds (clamp to 1-10)
+	parallel := clampParallel(opts.parallel)
 
-	// 10. API keys present (OpenAI always needed for transcription)
+	// 8. API keys present (OpenAI always needed for transcription)
 	openaiKey := env.Getenv(EnvOpenAIAPIKey)
 	if openaiKey == "" {
 		return fmt.Errorf("%w (set it with: export %s=sk-...)", ErrAPIKeyMissing, EnvOpenAIAPIKey)
 	}
 
-	// 11. Restructuring API key validation (only if template specified)
+	// 9. Restructuring API key validation (only if template specified)
 	// The actual key resolution is done in restructureContent()
-	if tmpl != "" {
-		switch provider {
-		case ProviderDeepSeek:
-			if env.Getenv(EnvDeepSeekAPIKey) == "" {
-				return fmt.Errorf("%w (set it with: export %s=sk-...)", ErrDeepSeekKeyMissing, EnvDeepSeekAPIKey)
-			}
-		case ProviderOpenAI:
-			// OpenAI key already validated above
+	// Note: OpenAI key already validated above, so only check DeepSeek
+	if !opts.template.IsZero() && provider.IsDeepSeek() {
+		if env.Getenv(EnvDeepSeekAPIKey) == "" {
+			return fmt.Errorf("%w (set it with: export %s=sk-...)", ErrDeepSeekKeyMissing, EnvDeepSeekAPIKey)
 		}
 	}
 
@@ -205,7 +244,7 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 		return err
 	}
 
-	chunks, err := chunker.Chunk(ctx, inputPath)
+	chunks, err := chunker.Chunk(ctx, opts.inputPath)
 	if err != nil {
 		return err
 	}
@@ -222,14 +261,14 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 	// === TRANSCRIPTION ===
 
 	transcriber := env.TranscriberFactory.NewTranscriber(openaiKey)
-	opts := transcribe.Options{
-		Diarize:  diarize,
-		Language: language,
+	transcribeOpts := transcribe.Options{
+		Diarize:  opts.diarize,
+		Language: opts.language,
 	}
 
 	// Transcribe with progress output
 	fmt.Fprintln(env.Stderr, "Transcribing...")
-	results, err := transcribe.TranscribeAll(ctx, chunks, transcriber, opts, parallel)
+	results, err := transcribe.TranscribeAll(ctx, chunks, transcriber, transcribeOpts, parallel)
 	if err != nil {
 		return err
 	}
@@ -240,17 +279,17 @@ func runTranscribe(cmd *cobra.Command, env *Env, inputPath, output, tmpl string,
 	// === RESTRUCTURE (optional) ===
 
 	finalOutput := transcript
-	if tmpl != "" && strings.TrimSpace(transcript) != "" {
-		fmt.Fprintf(env.Stderr, "Restructuring with template '%s' (provider: %s)...\n", tmpl, provider)
+	if !opts.template.IsZero() && strings.TrimSpace(transcript) != "" {
+		fmt.Fprintf(env.Stderr, "Restructuring with template '%s' (provider: %s)...\n", opts.template, provider)
 
 		// Default output language to input language if not specified
-		effectiveOutputLang := outputLang
-		if effectiveOutputLang == "" && language != "" {
-			effectiveOutputLang = language
+		effectiveOutputLang := opts.outputLang
+		if effectiveOutputLang.IsZero() && !opts.language.IsZero() {
+			effectiveOutputLang = opts.language
 		}
 
 		finalOutput, err = restructureContent(ctx, env, transcript, RestructureOptions{
-			Template:   tmpl,
+			Template:   opts.template,
 			Provider:   provider,
 			OutputLang: effectiveOutputLang,
 			OnProgress: func(phase string, current, total int) {

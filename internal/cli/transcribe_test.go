@@ -13,8 +13,15 @@ import (
 
 	"github.com/alnah/go-transcript/internal/audio"
 	"github.com/alnah/go-transcript/internal/config"
+	"github.com/alnah/go-transcript/internal/lang"
+	"github.com/alnah/go-transcript/internal/template"
 	"github.com/alnah/go-transcript/internal/transcribe"
 )
+
+// Notes:
+// - Tests focus on observable behavior through public APIs (runTranscribe, TranscribeCmd)
+// - File I/O and format validation happen in runTranscribe (runtime checks)
+// - The mockRestructurerFactory from mocks_test.go is reused for consistency
 
 // ---------------------------------------------------------------------------
 // Unit tests for helper functions
@@ -92,6 +99,111 @@ func TestSupportedFormatsList(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Tests for ParseTranscribeOptions - CLI input parsing and validation
+// ---------------------------------------------------------------------------
+
+func TestParseTranscribeOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		inputPath  string
+		output     string
+		tmpl       string
+		diarize    bool
+		parallel   int
+		language   string
+		outputLang string
+		provider   string
+		wantErr    bool
+		errContain string
+	}{
+		{
+			name:      "valid minimal options",
+			inputPath: "/path/to/file.ogg",
+			parallel:  5,
+			provider:  "deepseek",
+			wantErr:   false,
+		},
+		{
+			name:       "valid with all options",
+			inputPath:  "/path/to/file.ogg",
+			output:     "/output/file.md",
+			tmpl:       "meeting",
+			diarize:    true,
+			parallel:   3,
+			language:   "fr",
+			outputLang: "en",
+			provider:   "openai",
+			wantErr:    false,
+		},
+		{
+			name:       "invalid template",
+			inputPath:  "/path/to/file.ogg",
+			tmpl:       "nonexistent-template",
+			parallel:   5,
+			provider:   "deepseek",
+			wantErr:    true,
+			errContain: "unknown",
+		},
+		{
+			name:      "invalid language",
+			inputPath: "/path/to/file.ogg",
+			parallel:  5,
+			language:  "invalid-lang-code-too-long",
+			provider:  "deepseek",
+			wantErr:   true,
+		},
+		{
+			name:       "invalid output language",
+			inputPath:  "/path/to/file.ogg",
+			tmpl:       "brainstorm",
+			parallel:   5,
+			outputLang: "invalid-output-lang",
+			provider:   "deepseek",
+			wantErr:    true,
+		},
+		{
+			name:       "invalid provider",
+			inputPath:  "/path/to/file.ogg",
+			parallel:   5,
+			provider:   "invalid-provider",
+			wantErr:    true,
+			errContain: "invalid provider",
+		},
+		{
+			name:      "empty provider uses default",
+			inputPath: "/path/to/file.ogg",
+			parallel:  5,
+			provider:  "",
+			wantErr:   false, // Empty provider is allowed - defaults to DeepSeek
+		},
+		{
+			name:      "no template is valid",
+			inputPath: "/path/to/file.ogg",
+			parallel:  5,
+			provider:  "deepseek",
+			wantErr:   false, // Raw transcript mode
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := ParseTranscribeOptions(tt.inputPath, tt.output, tt.tmpl, tt.diarize, tt.parallel, tt.language, tt.outputLang, tt.provider)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseTranscribeOptions() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errContain != "" && !strings.Contains(err.Error(), tt.errContain) {
+				t.Errorf("ParseTranscribeOptions() error = %v, want error containing %q", err, tt.errContain)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Tests for runTranscribe
 // ---------------------------------------------------------------------------
 
@@ -103,13 +215,24 @@ func createTranscribeCmd(ctx context.Context) *cobra.Command {
 	return cmd
 }
 
+// mustParseTranscribeOptions is a test helper that parses options or fails the test.
+func mustParseTranscribeOptions(t *testing.T, inputPath, output, tmpl string, diarize bool, parallel int, language, outputLang, provider string) TranscribeOptions {
+	t.Helper()
+	opts, err := ParseTranscribeOptions(inputPath, output, tmpl, diarize, parallel, language, outputLang, provider)
+	if err != nil {
+		t.Fatalf("ParseTranscribeOptions failed: %v", err)
+	}
+	return opts
+}
+
 func TestRunTranscribe_FileNotFound(t *testing.T) {
 	t.Parallel()
 
 	env, _ := testEnv()
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, "/nonexistent/file.ogg", "", "", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, "/nonexistent/file.ogg", "", "", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
 	}
@@ -127,43 +250,13 @@ func TestRunTranscribe_UnsupportedFormat(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for unsupported format")
 	}
 	if !errors.Is(err, ErrUnsupportedFormat) {
 		t.Errorf("expected ErrUnsupportedFormat, got %v", err)
-	}
-}
-
-func TestRunTranscribe_InvalidTemplate(t *testing.T) {
-	t.Parallel()
-
-	inputPath := createTestAudioFile(t, "audio.ogg")
-
-	env, _ := testEnv()
-	cmd := createTranscribeCmd(context.Background())
-
-	err := runTranscribe(cmd, env, inputPath, "", "nonexistent-template", false, 5, "", "", ProviderDeepSeek)
-	if err == nil {
-		t.Fatal("expected error for invalid template")
-	}
-	if !strings.Contains(err.Error(), "unknown") && !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected template error, got %v", err)
-	}
-}
-
-func TestRunTranscribe_InvalidLanguage(t *testing.T) {
-	t.Parallel()
-
-	inputPath := createTestAudioFile(t, "audio.ogg")
-
-	env, _ := testEnv()
-	cmd := createTranscribeCmd(context.Background())
-
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "invalid-lang", "", ProviderDeepSeek)
-	if err == nil {
-		t.Fatal("expected error for invalid language")
 	}
 }
 
@@ -175,7 +268,10 @@ func TestRunTranscribe_OutputLangRequiresTemplate(t *testing.T) {
 	env, _ := testEnv()
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "en", ProviderDeepSeek)
+	// Parse options with output language but no template
+	// Note: ParseTranscribeOptions doesn't validate this - runTranscribe does
+	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "en", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error when --translate without template")
 	}
@@ -199,7 +295,8 @@ func TestRunTranscribe_MissingAPIKey(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for missing API key")
 	}
@@ -229,7 +326,8 @@ func TestRunTranscribe_FFmpegResolveFails(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error when ffmpeg not found")
 	}
@@ -267,7 +365,8 @@ func TestRunTranscribe_ChunkerFails(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error when chunker fails")
 	}
@@ -326,7 +425,8 @@ func TestRunTranscribe_Success(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -405,7 +505,8 @@ func TestRunTranscribe_OutputExists(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for existing output file")
 	}
@@ -462,13 +563,14 @@ func TestRunTranscribe_WithLanguage(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", false, 5, "fr", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "fr", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if capturedOpts.Language != "fr" {
-		t.Errorf("expected language 'fr', got %q", capturedOpts.Language)
+	if capturedOpts.Language.String() != "fr" {
+		t.Errorf("expected language 'fr', got %q", capturedOpts.Language.String())
 	}
 }
 
@@ -520,7 +622,8 @@ func TestRunTranscribe_WithDiarize(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "", true, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", true, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -586,7 +689,8 @@ func TestRunTranscribe_DefaultOutputPath(t *testing.T) {
 	cmd := createTranscribeCmd(context.Background())
 
 	// Empty output path - should use default derived from input
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -679,10 +783,10 @@ func TestRunTranscribe_WithTemplate(t *testing.T) {
 	}
 
 	// Track restructurer calls
-	var capturedTemplate string
+	var capturedTemplate template.Name
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
-			capturedTemplate = templateName
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
+			capturedTemplate = tmpl
 			return "# Restructured Output\n\nKey ideas here.", false, nil
 		},
 	}
@@ -702,13 +806,14 @@ func TestRunTranscribe_WithTemplate(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	// Verify restructurer was called with correct template
-	if capturedTemplate != "brainstorm" {
+	if capturedTemplate.String() != "brainstorm" {
 		t.Errorf("expected template 'brainstorm', got %q", capturedTemplate)
 	}
 
@@ -762,9 +867,9 @@ func TestRunTranscribe_WithTemplateAndLanguages(t *testing.T) {
 		},
 	}
 
-	var capturedLang string
+	var capturedLang lang.Language
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			capturedLang = outputLang
 			return "restructured", false, nil
 		},
@@ -786,14 +891,15 @@ func TestRunTranscribe_WithTemplateAndLanguages(t *testing.T) {
 	cmd := createTranscribeCmd(context.Background())
 
 	// Test: input language fr, output language en
-	err := runTranscribe(cmd, env, inputPath, outputPath, "meeting", false, 5, "fr", "en", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "meeting", false, 5, "fr", "en", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	// Output language should be "en" (explicitly specified)
-	if capturedLang != "en" {
-		t.Errorf("expected output lang 'en', got %q", capturedLang)
+	if capturedLang.String() != "en" {
+		t.Errorf("expected output lang 'en', got %q", capturedLang.String())
 	}
 }
 
@@ -831,9 +937,9 @@ func TestRunTranscribe_WithTemplateInheritLanguage(t *testing.T) {
 		},
 	}
 
-	var capturedLang string
+	var capturedLang lang.Language
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			capturedLang = outputLang
 			return "restructured", false, nil
 		},
@@ -855,14 +961,15 @@ func TestRunTranscribe_WithTemplateInheritLanguage(t *testing.T) {
 	cmd := createTranscribeCmd(context.Background())
 
 	// Test: input language fr, no output language -> should inherit fr
-	err := runTranscribe(cmd, env, inputPath, outputPath, "meeting", false, 5, "fr", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "meeting", false, 5, "fr", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	// Output language should be "fr" (inherited from input)
-	if capturedLang != "fr" {
-		t.Errorf("expected output lang 'fr' (inherited), got %q", capturedLang)
+	if capturedLang.String() != "fr" {
+		t.Errorf("expected output lang 'fr' (inherited), got %q", capturedLang.String())
 	}
 }
 
@@ -902,7 +1009,7 @@ func TestRunTranscribe_RestructureError(t *testing.T) {
 
 	restructureErr := errors.New("API error during restructuring")
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "", false, restructureErr
 		},
 	}
@@ -922,7 +1029,8 @@ func TestRunTranscribe_RestructureError(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error when restructuring fails")
 	}
@@ -968,7 +1076,7 @@ func TestRunTranscribe_EmptyTranscriptSkipsRestructure(t *testing.T) {
 
 	var restructureCalled bool
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			restructureCalled = true
 			return "should not be called", false, nil
 		},
@@ -989,7 +1097,8 @@ func TestRunTranscribe_EmptyTranscriptSkipsRestructure(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -1001,145 +1110,106 @@ func TestRunTranscribe_EmptyTranscriptSkipsRestructure(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests for validation order
+// Tests for validation order in runTranscribe
 // ---------------------------------------------------------------------------
 
 func TestRunTranscribe_ValidationOrder(t *testing.T) {
 	t.Parallel()
 
-	// Test that validation occurs in the documented order:
-	// 1. File exists
-	// 2. Format supported
-	// 3. Config load (warning only)
-	// 4. Output path
-	// 5. Template valid
-	// 6. Language validation
-	// 7. Output language requires template
-	// 8. Parallel bounds
-	// 9. API key present
+	t.Run("file_not_found_first", func(t *testing.T) {
+		t.Parallel()
 
-	tests := []struct {
-		name        string
-		setup       func(t *testing.T) (inputPath string, env *Env)
-		output      string
-		template    string
-		language    string
-		outputLang  string
-		wantErr     error
-		wantContain string
-	}{
-		{
-			name: "file_not_found_before_format_check",
-			setup: func(t *testing.T) (string, *Env) {
-				env, _ := testEnv()
-				return "/nonexistent/path.ogg", env
-			},
-			wantErr: ErrFileNotFound,
-		},
-		{
-			name: "format_check_before_template_check",
-			setup: func(t *testing.T) (string, *Env) {
-				// Create file with bad extension
-				path := createTestAudioFile(t, "audio.xyz")
-				env, _ := testEnv()
-				return path, env
-			},
-			template: "brainstorm", // Valid template, but should fail before
-			wantErr:  ErrUnsupportedFormat,
-		},
-		{
-			name: "template_check_before_api_key",
-			setup: func(t *testing.T) (string, *Env) {
-				path := createTestAudioFile(t, "audio.ogg")
-				env := &Env{
-					Stderr:         &syncBuffer{},
-					Getenv:         func(string) string { return "" }, // No API key
-					Now:            fixedTime(time.Now()),
-					FFmpegResolver: &mockFFmpegResolver{},
-					ConfigLoader:   &mockConfigLoader{},
-				}
-				return path, env
-			},
-			template:    "invalid-template",
-			wantContain: "unknown", // Template error before API key error
-		},
-		{
-			name: "output_lang_requires_template",
-			setup: func(t *testing.T) (string, *Env) {
-				path := createTestAudioFile(t, "audio.ogg")
-				env := &Env{
-					Stderr:         &syncBuffer{},
-					Getenv:         func(string) string { return "" }, // No API key
-					Now:            fixedTime(time.Now()),
-					FFmpegResolver: &mockFFmpegResolver{},
-					ConfigLoader:   &mockConfigLoader{},
-				}
-				return path, env
-			},
-			outputLang:  "en",
-			wantContain: "translate", // Should fail before API key check
-		},
-		{
-			name: "api_key_check_last",
-			setup: func(t *testing.T) (string, *Env) {
-				path := createTestAudioFile(t, "audio.ogg")
-				env := &Env{
-					Stderr:         &syncBuffer{},
-					Getenv:         func(string) string { return "" }, // No API key
-					Now:            fixedTime(time.Now()),
-					FFmpegResolver: &mockFFmpegResolver{},
-					ConfigLoader:   &mockConfigLoader{},
-				}
-				return path, env
-			},
-			wantErr: ErrAPIKeyMissing,
-		},
-	}
+		env, _ := testEnv()
+		cmd := createTranscribeCmd(context.Background())
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		opts := mustParseTranscribeOptions(t, "/nonexistent/path.ogg", "", "", false, 5, "", "", "deepseek")
+		err := RunTranscribe(cmd, env, opts)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrFileNotFound) {
+			t.Errorf("expected ErrFileNotFound, got %v", err)
+		}
+	})
 
-			inputPath, env := tt.setup(t)
-			cmd := createTranscribeCmd(context.Background())
+	t.Run("format_check_before_api_key", func(t *testing.T) {
+		t.Parallel()
 
-			err := runTranscribe(cmd, env, inputPath, tt.output, tt.template, false, 5, tt.language, tt.outputLang, ProviderDeepSeek)
-			if err == nil {
-				t.Fatal("expected error")
-			}
+		// Create file with bad extension
+		path := createTestAudioFile(t, "audio.xyz")
+		env := &Env{
+			Stderr:         &syncBuffer{},
+			Getenv:         func(string) string { return "" }, // No API key
+			Now:            fixedTime(time.Now()),
+			FFmpegResolver: &mockFFmpegResolver{},
+			ConfigLoader:   &mockConfigLoader{},
+		}
+		cmd := createTranscribeCmd(context.Background())
 
-			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
-				t.Errorf("expected error %v, got %v", tt.wantErr, err)
-			}
-			if tt.wantContain != "" && !strings.Contains(err.Error(), tt.wantContain) {
-				t.Errorf("expected error containing %q, got %v", tt.wantContain, err)
-			}
-		})
-	}
+		opts := mustParseTranscribeOptions(t, path, "", "", false, 5, "", "", "deepseek")
+		err := RunTranscribe(cmd, env, opts)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		// Format error should come before API key error
+		if !errors.Is(err, ErrUnsupportedFormat) {
+			t.Errorf("expected ErrUnsupportedFormat, got %v", err)
+		}
+	})
+
+	t.Run("output_lang_requires_template", func(t *testing.T) {
+		t.Parallel()
+
+		path := createTestAudioFile(t, "audio.ogg")
+		env := &Env{
+			Stderr:         &syncBuffer{},
+			Getenv:         func(string) string { return "" }, // No API key
+			Now:            fixedTime(time.Now()),
+			FFmpegResolver: &mockFFmpegResolver{},
+			ConfigLoader:   &mockConfigLoader{},
+		}
+		cmd := createTranscribeCmd(context.Background())
+
+		opts := mustParseTranscribeOptions(t, path, "", "", false, 5, "", "en", "deepseek")
+		err := RunTranscribe(cmd, env, opts)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		// Should fail with translate requires template error before API key check
+		if !strings.Contains(err.Error(), "translate") {
+			t.Errorf("expected translate error, got %v", err)
+		}
+	})
+
+	t.Run("api_key_check_last", func(t *testing.T) {
+		t.Parallel()
+
+		path := createTestAudioFile(t, "audio.ogg")
+		env := &Env{
+			Stderr:         &syncBuffer{},
+			Getenv:         func(string) string { return "" }, // No API key
+			Now:            fixedTime(time.Now()),
+			FFmpegResolver: &mockFFmpegResolver{},
+			ConfigLoader:   &mockConfigLoader{},
+		}
+		cmd := createTranscribeCmd(context.Background())
+
+		opts := mustParseTranscribeOptions(t, path, "", "", false, 5, "", "", "deepseek")
+		err := RunTranscribe(cmd, env, opts)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrAPIKeyMissing) {
+			t.Errorf("expected ErrAPIKeyMissing, got %v", err)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
 // Tests for provider flag
 // ---------------------------------------------------------------------------
 
-func TestRunTranscribe_InvalidProvider(t *testing.T) {
-	t.Parallel()
-
-	inputPath := createTestAudioFile(t, "audio.ogg")
-
-	env, _ := testEnv()
-	cmd := createTranscribeCmd(context.Background())
-
-	err := runTranscribe(cmd, env, inputPath, "", "", false, 5, "", "", "invalid-provider")
-	if err == nil {
-		t.Fatal("expected error for invalid provider")
-	}
-	if !errors.Is(err, ErrUnsupportedProvider) {
-		t.Errorf("expected ErrUnsupportedProvider, got %v", err)
-	}
-}
-
-func TestRunTranscribe_ProviderDeepSeek_MissingKey(t *testing.T) {
+func TestRunTranscribe_DeepSeekProvider_MissingKey(t *testing.T) {
 	t.Parallel()
 
 	inputPath := createTestAudioFile(t, "audio.ogg")
@@ -1162,7 +1232,8 @@ func TestRunTranscribe_ProviderDeepSeek_MissingKey(t *testing.T) {
 	cmd := createTranscribeCmd(context.Background())
 
 	// Use template to trigger restructuring (which requires DeepSeek key)
-	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
 		t.Fatal("expected error for missing DeepSeek API key")
 	}
@@ -1171,7 +1242,7 @@ func TestRunTranscribe_ProviderDeepSeek_MissingKey(t *testing.T) {
 	}
 }
 
-func TestRunTranscribe_ProviderOpenAI_ReusesKey(t *testing.T) {
+func TestRunTranscribe_OpenAIProvider_ReusesKey(t *testing.T) {
 	t.Parallel()
 
 	inputPath := createTestAudioFile(t, "audio.ogg")
@@ -1206,7 +1277,7 @@ func TestRunTranscribe_ProviderOpenAI_ReusesKey(t *testing.T) {
 	}
 
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "restructured", false, nil
 		},
 	}
@@ -1233,7 +1304,8 @@ func TestRunTranscribe_ProviderOpenAI_ReusesKey(t *testing.T) {
 	cmd := createTranscribeCmd(context.Background())
 
 	// Use OpenAI provider - should NOT require DeepSeek key
-	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderOpenAI)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "openai")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error with OpenAI provider, got %v", err)
 	}
@@ -1274,7 +1346,7 @@ func TestRunTranscribe_ProviderPassedToFactory(t *testing.T) {
 	}
 
 	mockMR := &mockMapReduceRestructurer{
-		RestructureFunc: func(ctx context.Context, transcript, templateName, outputLang string) (string, bool, error) {
+		RestructureFunc: func(ctx context.Context, transcript string, tmpl template.Name, outputLang lang.Language) (string, bool, error) {
 			return "restructured", false, nil
 		},
 	}
@@ -1294,7 +1366,8 @@ func TestRunTranscribe_ProviderPassedToFactory(t *testing.T) {
 	}
 	cmd := createTranscribeCmd(context.Background())
 
-	err := runTranscribe(cmd, env, inputPath, outputPath, "brainstorm", false, 5, "", "", ProviderDeepSeek)
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
+	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -1304,7 +1377,7 @@ func TestRunTranscribe_ProviderPassedToFactory(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 NewMapReducer call, got %d", len(calls))
 	}
-	if calls[0].Provider != ProviderDeepSeek {
-		t.Errorf("expected provider %q, got %q", ProviderDeepSeek, calls[0].Provider)
+	if calls[0].Provider != DeepSeekProvider {
+		t.Errorf("expected provider %q, got %q", DeepSeekProvider, calls[0].Provider)
 	}
 }
