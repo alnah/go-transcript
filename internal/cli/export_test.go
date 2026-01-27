@@ -5,9 +5,6 @@ package cli
 // RunRecord exports runRecord for testing.
 var RunRecord = runRecord
 
-// RunTranscribe exports runTranscribe for testing.
-// Note: This requires passing a *cobra.Command; consider refactoring if this becomes cumbersome.
-
 // RunLive exports runLive for testing.
 var RunLive = runLive
 
@@ -55,3 +52,12 @@ var FileSize = fileSize
 
 // LiveWritePhase exports liveWritePhase for testing.
 var LiveWritePhase = liveWritePhase
+
+// DeriveStructuredOutputPath exports deriveStructuredOutputPath for testing.
+var DeriveStructuredOutputPath = deriveStructuredOutputPath
+
+// RunStructure exports runStructure for testing.
+var RunStructure = runStructure
+
+// RestructureContent exports restructureContent for testing.
+var RestructureContent = restructureContent
