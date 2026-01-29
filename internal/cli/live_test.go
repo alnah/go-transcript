@@ -1387,3 +1387,58 @@ func TestRunLive_ProviderPassedToFactory(t *testing.T) {
 		t.Errorf("expected provider %q, got %q", DeepSeekProvider, calls[0].Provider)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Tests for extension warning
+// ---------------------------------------------------------------------------
+
+func TestRunLive_NonMdExtensionWarning(t *testing.T) {
+	t.Parallel()
+
+	outputDir := t.TempDir()
+	env, getStderr := liveEnvForExtensionTest(t, outputDir)
+
+	// Use .txt extension - should trigger warning
+	outputPath := filepath.Join(outputDir, "output.txt")
+	opts := liveOptions{
+		provider: DeepSeekProvider,
+		duration: 30 * time.Minute,
+		output:   outputPath,
+		device:   "default",
+	}
+
+	if err := RunLive(context.Background(), env, opts); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify warning was emitted
+	output := getStderr()
+	if !strings.Contains(output, "Warning") || !strings.Contains(output, ".txt") {
+		t.Errorf("expected warning about .txt extension, got: %q", output)
+	}
+}
+
+func TestRunLive_MdExtensionNoWarning(t *testing.T) {
+	t.Parallel()
+
+	outputDir := t.TempDir()
+	env, getStderr := liveEnvForExtensionTest(t, outputDir)
+
+	// Use .md extension - should NOT trigger warning
+	outputPath := filepath.Join(outputDir, "output.md")
+	opts := liveOptions{
+		provider: DeepSeekProvider,
+		duration: 30 * time.Minute,
+		output:   outputPath,
+		device:   "default",
+	}
+
+	if err := RunLive(context.Background(), env, opts); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify NO warning about extension
+	if strings.Contains(getStderr(), "regardless") {
+		t.Errorf("unexpected extension warning for .md file: %q", getStderr())
+	}
+}

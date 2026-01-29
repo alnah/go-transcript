@@ -702,6 +702,54 @@ func TestRunTranscribe_DefaultOutputPath(t *testing.T) {
 	}
 }
 
+func TestRunTranscribe_NonMdExtensionWarning(t *testing.T) {
+	t.Parallel()
+
+	inputPath := createTestAudioFile(t, "audio.ogg")
+	outputDir := t.TempDir()
+	env, getStderr := transcribeEnvForExtensionTest(t)
+	cmd := createTranscribeCmd(context.Background())
+
+	// Use .txt extension - should trigger warning
+	outputPath := filepath.Join(outputDir, "output.txt")
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
+	if err := RunTranscribe(cmd, env, opts); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify warning was emitted
+	output := getStderr()
+	if !strings.Contains(output, "Warning") || !strings.Contains(output, ".txt") {
+		t.Errorf("expected warning about .txt extension, got: %q", output)
+	}
+
+	// Verify file was still created (extension preserved as user specified)
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		t.Errorf("expected output file at %s", outputPath)
+	}
+}
+
+func TestRunTranscribe_MdExtensionNoWarning(t *testing.T) {
+	t.Parallel()
+
+	inputPath := createTestAudioFile(t, "audio.ogg")
+	outputDir := t.TempDir()
+	env, getStderr := transcribeEnvForExtensionTest(t)
+	cmd := createTranscribeCmd(context.Background())
+
+	// Use .md extension - should NOT trigger warning
+	outputPath := filepath.Join(outputDir, "output.md")
+	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
+	if err := RunTranscribe(cmd, env, opts); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify NO warning about extension
+	if strings.Contains(getStderr(), "regardless") {
+		t.Errorf("unexpected extension warning for .md file: %q", getStderr())
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Tests for TranscribeCmd (Cobra integration)
 // ---------------------------------------------------------------------------

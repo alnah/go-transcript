@@ -641,6 +641,53 @@ func TestRunStructure_ProgressCallback(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Tests for extension warning
+// ---------------------------------------------------------------------------
+
+func TestRunStructure_NonMdExtensionWarning(t *testing.T) {
+	t.Parallel()
+
+	inputPath := createTestTranscriptFile(t, "transcript content")
+	outputDir := t.TempDir()
+	env, getStderr := structureEnvForExtensionTest(t)
+	cmd := createStructureCmd(context.Background())
+
+	// Use .txt extension - should trigger warning
+	outputPath := filepath.Join(outputDir, "output.txt")
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
+	if err := RunStructure(cmd, env, opts); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify warning was emitted
+	output := getStderr()
+	if !strings.Contains(output, "Warning") || !strings.Contains(output, ".txt") {
+		t.Errorf("expected warning about .txt extension, got: %q", output)
+	}
+}
+
+func TestRunStructure_MdExtensionNoWarning(t *testing.T) {
+	t.Parallel()
+
+	inputPath := createTestTranscriptFile(t, "transcript content")
+	outputDir := t.TempDir()
+	env, getStderr := structureEnvForExtensionTest(t)
+	cmd := createStructureCmd(context.Background())
+
+	// Use .md extension - should NOT trigger warning
+	outputPath := filepath.Join(outputDir, "output.md")
+	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
+	if err := RunStructure(cmd, env, opts); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify NO warning about extension
+	if strings.Contains(getStderr(), "regardless") {
+		t.Errorf("unexpected extension warning for .md file: %q", getStderr())
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Tests for validation order in runStructure
 // ---------------------------------------------------------------------------
 

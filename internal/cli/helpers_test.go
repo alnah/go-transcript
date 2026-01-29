@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alnah/go-transcript/internal/audio"
 	"github.com/alnah/go-transcript/internal/config"
 )
 
@@ -161,4 +163,93 @@ func configWithOutputDir(outputDir string) *mockConfigLoader {
 			return config.Config{OutputDir: outputDir}, nil
 		},
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Extension warning test helpers
+// ---------------------------------------------------------------------------
+
+// transcribeEnvForExtensionTest creates an Env configured for testing extension warnings.
+// Returns the Env and a function to get stderr output.
+func transcribeEnvForExtensionTest(t *testing.T) (*Env, func() string) {
+	t.Helper()
+
+	chunkPath := filepath.Join(t.TempDir(), "chunk_0.ogg")
+	if err := os.WriteFile(chunkPath, []byte("chunk"), 0644); err != nil {
+		t.Fatalf("failed to create chunk: %v", err)
+	}
+
+	stderr := &syncBuffer{}
+	env := &Env{
+		Stderr:         stderr,
+		Getenv:         defaultTestEnv,
+		Now:            fixedTime(time.Now()),
+		FFmpegResolver: &mockFFmpegResolver{},
+		ConfigLoader:   &mockConfigLoader{},
+		ChunkerFactory: &mockChunkerFactory{
+			mockChunker: &mockChunker{
+				ChunkFunc: func(ctx context.Context, audioPath string) ([]audio.Chunk, error) {
+					return []audio.Chunk{{Path: chunkPath, Index: 0}}, nil
+				},
+			},
+		},
+		TranscriberFactory: &mockTranscriberFactory{},
+	}
+
+	return env, stderr.String
+}
+
+// structureEnvForExtensionTest creates an Env configured for testing extension warnings.
+// Returns the Env and a function to get stderr output.
+func structureEnvForExtensionTest(t *testing.T) (*Env, func() string) {
+	t.Helper()
+
+	stderr := &syncBuffer{}
+	env := &Env{
+		Stderr:       stderr,
+		Getenv:       defaultTestEnv,
+		ConfigLoader: &mockConfigLoader{},
+		RestructurerFactory: &mockRestructurerFactory{
+			mockMapReducer: &mockMapReduceRestructurer{},
+		},
+	}
+
+	return env, stderr.String
+}
+
+// liveEnvForExtensionTest creates an Env configured for testing extension warnings.
+// Returns the Env and a function to get stderr output.
+func liveEnvForExtensionTest(t *testing.T, outputDir string) (*Env, func() string) {
+	t.Helper()
+
+	chunkPath := filepath.Join(outputDir, "chunk_0.ogg")
+	if err := os.WriteFile(chunkPath, []byte("chunk"), 0644); err != nil {
+		t.Fatalf("failed to create chunk: %v", err)
+	}
+
+	stderr := &syncBuffer{}
+	env := &Env{
+		Stderr:         stderr,
+		Getenv:         defaultTestEnv,
+		Now:            fixedTime(time.Now()),
+		FFmpegResolver: &mockFFmpegResolver{},
+		ConfigLoader:   &mockConfigLoader{},
+		RecorderFactory: &mockRecorderFactory{
+			mockRecorder: &mockRecorder{
+				RecordFunc: func(ctx context.Context, duration time.Duration, output string) error {
+					return os.WriteFile(output, []byte("recorded audio"), 0644)
+				},
+			},
+		},
+		ChunkerFactory: &mockChunkerFactory{
+			mockChunker: &mockChunker{
+				ChunkFunc: func(ctx context.Context, audioPath string) ([]audio.Chunk, error) {
+					return []audio.Chunk{{Path: chunkPath, Index: 0}}, nil
+				},
+			},
+		},
+		TranscriberFactory: &mockTranscriberFactory{},
+	}
+
+	return env, stderr.String
 }
