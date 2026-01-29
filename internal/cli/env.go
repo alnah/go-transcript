@@ -200,7 +200,7 @@ type defaultTranscriberFactory struct{}
 
 func (defaultTranscriberFactory) NewTranscriber(apiKey string) transcribe.Transcriber {
 	client := openai.NewClient(apiKey)
-	return transcribe.NewOpenAITranscriber(client)
+	return transcribe.NewOpenAITranscriber(client, apiKey)
 }
 
 // defaultRestructurerFactory implements RestructurerFactory with provider selection.

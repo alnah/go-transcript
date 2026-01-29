@@ -1,10 +1,15 @@
 package transcribe
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,6 +33,13 @@ const (
 	// FormatDiarizedJSON is the response format for diarized transcription.
 	// Not yet a constant in go-openai.
 	FormatDiarizedJSON openai.AudioResponseFormat = "diarized_json"
+
+	// ChunkingStrategyAuto lets OpenAI automatically determine chunking boundaries.
+	// Required for diarization model when input is longer than 30 seconds.
+	ChunkingStrategyAuto = "auto"
+
+	// openAITranscriptionURL is the OpenAI API endpoint for audio transcription.
+	openAITranscriptionURL = "https://api.openai.com/v1/audio/transcriptions"
 )
 
 // Parallelism configuration.
@@ -153,6 +165,11 @@ type audioTranscriber interface {
 	CreateTranscription(ctx context.Context, req openai.AudioRequest) (openai.AudioResponse, error)
 }
 
+// httpDoer abstracts HTTP client for testing.
+type httpDoer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 // Compile-time interface compliance checks.
 var (
 	_ Transcriber      = (*OpenAITranscriber)(nil)
@@ -163,6 +180,8 @@ var (
 // It supports automatic retries with exponential backoff for transient errors.
 type OpenAITranscriber struct {
 	client     audioTranscriber
+	httpClient httpDoer
+	apiKey     string
 	maxRetries int
 	baseDelay  time.Duration
 	maxDelay   time.Duration
@@ -192,11 +211,21 @@ func WithRetryDelays(base, max time.Duration) TranscriberOption {
 	}
 }
 
+// WithHTTPClient sets a custom HTTP client (for testing).
+func WithHTTPClient(c httpDoer) TranscriberOption {
+	return func(t *OpenAITranscriber) {
+		t.httpClient = c
+	}
+}
+
 // NewOpenAITranscriber creates a new OpenAITranscriber.
 // The client is injected to enable testing with mocks.
-func NewOpenAITranscriber(client *openai.Client, opts ...TranscriberOption) *OpenAITranscriber {
+// apiKey is required for diarization requests (uses direct HTTP).
+func NewOpenAITranscriber(client *openai.Client, apiKey string, opts ...TranscriberOption) *OpenAITranscriber {
 	t := &OpenAITranscriber{
 		client:     client,
+		httpClient: &http.Client{Timeout: 5 * time.Minute},
+		apiKey:     apiKey,
 		maxRetries: defaultMaxRetries,
 		baseDelay:  defaultBaseDelay,
 		maxDelay:   defaultMaxDelay,
@@ -210,28 +239,25 @@ func NewOpenAITranscriber(client *openai.Client, opts ...TranscriberOption) *Ope
 // Transcribe transcribes an audio file using OpenAI's API.
 // It automatically retries on transient errors (rate limits, timeouts, server errors).
 func (t *OpenAITranscriber) Transcribe(ctx context.Context, audioPath string, opts Options) (string, error) {
-	model := ModelGPT4oMiniTranscribe
-	format := openai.AudioResponseFormatJSON
-
-	// Diarization requires a different model and response format.
+	// Diarization requires chunking_strategy which go-openai doesn't support yet.
+	// We use direct HTTP for diarization requests.
 	if opts.Diarize {
-		model = ModelGPT4oTranscribeDiarize
-		format = FormatDiarizedJSON
+		return t.transcribeDiarizeWithRetry(ctx, audioPath, opts)
 	}
 
 	req := openai.AudioRequest{
-		Model:    model,
+		Model:    ModelGPT4oMiniTranscribe,
 		FilePath: audioPath,
-		Format:   format,
+		Format:   openai.AudioResponseFormatJSON,
 		Prompt:   opts.Prompt,
 		Language: opts.Language.BaseCode(), // OpenAI only accepts ISO 639-1 base codes
 	}
 
-	return t.transcribeWithRetry(ctx, req, opts.Diarize)
+	return t.transcribeWithRetry(ctx, req)
 }
 
 // transcribeWithRetry executes the transcription with exponential backoff retry.
-func (t *OpenAITranscriber) transcribeWithRetry(ctx context.Context, req openai.AudioRequest, diarize bool) (string, error) {
+func (t *OpenAITranscriber) transcribeWithRetry(ctx context.Context, req openai.AudioRequest) (string, error) {
 	cfg := RetryConfig{
 		MaxRetries: t.maxRetries,
 		BaseDelay:  t.baseDelay,
@@ -243,34 +269,184 @@ func (t *OpenAITranscriber) transcribeWithRetry(ctx context.Context, req openai.
 		if err != nil {
 			return "", classifyError(err)
 		}
-		if diarize {
-			return formatDiarizedResponse(resp), nil
-		}
 		return resp.Text, nil
 	}, isRetryableError)
 }
 
-// formatDiarizedResponse formats a diarized transcript response.
+// transcribeDiarizeWithRetry executes diarization transcription with exponential backoff retry.
+// Uses direct HTTP because go-openai doesn't support chunking_strategy parameter yet.
 //
-// LIMITATION (V1): The go-openai library does not yet expose speaker information
-// from the diarized_json response format. We format segments with their IDs as a
-// fallback. When proper speaker diarization support is added to go-openai, this
-// function should be updated to use "[Speaker N]" format instead of "[Segment N]".
-//
-// Expected future format: "[Speaker 1] text\n[Speaker 2] text\n..."
-// Current format: "[Segment 0] text\n[Segment 1] text\n..."
-//
-// TODO(diarization): Track upstream support at https://github.com/sashabaranov/go-openai/issues/924
-func formatDiarizedResponse(resp openai.AudioResponse) string {
-	if len(resp.Segments) == 0 {
-		return resp.Text
+// TODO(diarization): Remove this workaround when go-openai adds chunking_strategy support.
+// Track: https://github.com/sashabaranov/go-openai - check AudioRequest struct for ChunkingStrategy field.
+func (t *OpenAITranscriber) transcribeDiarizeWithRetry(ctx context.Context, audioPath string, opts Options) (string, error) {
+	cfg := RetryConfig{
+		MaxRetries: t.maxRetries,
+		BaseDelay:  t.baseDelay,
+		MaxDelay:   t.maxDelay,
 	}
 
+	return RetryWithBackoff(ctx, cfg, func() (string, error) {
+		return t.transcribeDiarizeHTTP(ctx, audioPath, opts)
+	}, isRetryableError)
+}
+
+// transcribeDiarizeHTTP performs a diarization transcription via direct HTTP.
+// This is necessary because go-openai doesn't support the chunking_strategy parameter
+// which is required for gpt-4o-transcribe-diarize model.
+func (t *OpenAITranscriber) transcribeDiarizeHTTP(ctx context.Context, audioPath string, opts Options) (string, error) {
+	// Open audio file
+	file, err := os.Open(audioPath) // #nosec G304 -- audioPath is from internal chunking
+	if err != nil {
+		return "", fmt.Errorf("failed to open audio file: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	// Build multipart form
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	// Add file field
+	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
+	if err != nil {
+		return "", fmt.Errorf("failed to create form file: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return "", fmt.Errorf("failed to copy file to form: %w", err)
+	}
+
+	// Add required fields
+	if err := writer.WriteField("model", ModelGPT4oTranscribeDiarize); err != nil {
+		return "", fmt.Errorf("failed to write model field: %w", err)
+	}
+	if err := writer.WriteField("response_format", string(FormatDiarizedJSON)); err != nil {
+		return "", fmt.Errorf("failed to write response_format field: %w", err)
+	}
+	// chunking_strategy is required for diarization model
+	if err := writer.WriteField("chunking_strategy", ChunkingStrategyAuto); err != nil {
+		return "", fmt.Errorf("failed to write chunking_strategy field: %w", err)
+	}
+
+	// Add optional fields
+	if opts.Prompt != "" {
+		if err := writer.WriteField("prompt", opts.Prompt); err != nil {
+			return "", fmt.Errorf("failed to write prompt field: %w", err)
+		}
+	}
+	if langCode := opts.Language.BaseCode(); langCode != "" {
+		if err := writer.WriteField("language", langCode); err != nil {
+			return "", fmt.Errorf("failed to write language field: %w", err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("failed to close multipart writer: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAITranscriptionURL, &body)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+
+	// Execute request
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Read response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Handle errors
+	if resp.StatusCode != http.StatusOK {
+		return "", parseDiarizeHTTPError(resp.StatusCode, respBody)
+	}
+
+	// Parse response
+	return parseDiarizeResponse(respBody)
+}
+
+// diarizeResponse represents the OpenAI diarized transcription response.
+type diarizeResponse struct {
+	Text     string `json:"text"`
+	Segments []struct {
+		ID      string  `json:"id"`
+		Start   float64 `json:"start"`
+		End     float64 `json:"end"`
+		Text    string  `json:"text"`
+		Speaker string  `json:"speaker"`
+	} `json:"segments"`
+}
+
+// parseDiarizeResponse parses the diarized JSON response.
+func parseDiarizeResponse(body []byte) (string, error) {
+	var resp diarizeResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// If no segments, return plain text
+	if len(resp.Segments) == 0 {
+		return resp.Text, nil
+	}
+
+	// Format with speaker labels
 	var b strings.Builder
 	for _, seg := range resp.Segments {
-		fmt.Fprintf(&b, "[Segment %d] %s\n", seg.ID, seg.Text)
+		speaker := seg.Speaker
+		if speaker == "" {
+			speaker = fmt.Sprintf("Speaker %s", seg.ID)
+		}
+		fmt.Fprintf(&b, "[%s] %s\n", speaker, strings.TrimSpace(seg.Text))
 	}
-	return b.String()
+	return strings.TrimSpace(b.String()), nil
+}
+
+// diarizeErrorResponse represents an error response from OpenAI.
+type diarizeErrorResponse struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+	} `json:"error"`
+}
+
+// parseDiarizeHTTPError parses an HTTP error response from OpenAI.
+func parseDiarizeHTTPError(statusCode int, body []byte) error {
+	var errResp diarizeErrorResponse
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		// If we can't parse, return generic error with body
+		return fmt.Errorf("HTTP %d: %s", statusCode, string(body))
+	}
+
+	msg := errResp.Error.Message
+	if msg == "" {
+		msg = string(body)
+	}
+
+	switch statusCode {
+	case http.StatusTooManyRequests:
+		if strings.Contains(msg, "quota") || strings.Contains(msg, "billing") {
+			return fmt.Errorf("%s: %w", msg, ErrQuotaExceeded)
+		}
+		return fmt.Errorf("%s: %w", msg, ErrRateLimit)
+	case http.StatusUnauthorized:
+		return fmt.Errorf("%s: %w", msg, ErrAuthFailed)
+	case http.StatusRequestTimeout, http.StatusGatewayTimeout:
+		return fmt.Errorf("%s: %w", msg, ErrTimeout)
+	case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound:
+		return fmt.Errorf("%s: %w", msg, ErrBadRequest)
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable:
+		return fmt.Errorf("%s: %w", msg, ErrTimeout) // Retryable server error
+	default:
+		return fmt.Errorf("HTTP %d: %s", statusCode, msg)
+	}
 }
 
 // classifyError maps OpenAI API errors to sentinel errors.
