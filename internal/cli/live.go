@@ -21,6 +21,11 @@ import (
 	"github.com/alnah/go-transcript/internal/transcribe"
 )
 
+// postInterruptTimeout is the maximum time allowed for transcription and
+// restructuring after recording is interrupted. This timeout uses a fresh
+// context since the original context is cancelled by the interrupt.
+const postInterruptTimeout = 30 * time.Minute
+
 // LiveCmd creates the live command (record + transcribe in one step).
 // The env parameter provides injectable dependencies for testing.
 func LiveCmd(env *Env) *cobra.Command {
@@ -241,17 +246,17 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 		return nil, fmt.Errorf("--translate requires --template (raw transcripts use the audio's language)")
 	}
 
-	// 7b. Keep raw transcript requires template
+	// 8. Keep raw transcript requires template
 	if opts.keepRawTranscript && opts.template.IsZero() {
 		return nil, fmt.Errorf("--keep-raw-transcript requires --template (without template, output is already the raw transcript)")
 	}
 
-	// 8. Output file doesn't exist
+	// 9. Output file doesn't exist
 	if _, err := os.Stat(opts.output); err == nil {
 		return nil, fmt.Errorf("output file already exists: %s: %w", opts.output, ErrOutputExists)
 	}
 
-	// 9. Audio output path doesn't exist (if --keep-audio)
+	// 10. Audio output path doesn't exist (if --keep-audio)
 	audioPath := audioOutputPath(opts.output)
 	if opts.keepAudio {
 		if _, err := os.Stat(audioPath); err == nil {
@@ -259,7 +264,7 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 		}
 	}
 
-	// 9b. Raw transcript path doesn't exist (if --keep-raw-transcript)
+	// 11. Raw transcript path doesn't exist (if --keep-raw-transcript)
 	rawPath := rawTranscriptPath(opts.output)
 	if opts.keepRawTranscript {
 		if _, err := os.Stat(rawPath); err == nil {
@@ -267,7 +272,7 @@ func validateLiveContext(ctx context.Context, env *Env, opts liveOptions) (*live
 		}
 	}
 
-	// 10. System audio device available (if needed)
+	// 12. System audio device available (if needed)
 	if opts.systemRecord || opts.mix {
 		if _, err := audio.DetectLoopbackDevice(ctx, ffmpegPath); err != nil {
 			return nil, err
@@ -422,13 +427,7 @@ func liveRestructurePhase(ctx context.Context, env *Env, lctx *liveContext, opts
 		Template:   opts.template,
 		Provider:   lctx.restructureProvider,
 		OutputLang: effectiveOutputLang,
-		OnProgress: func(phase string, current, total int) {
-			if phase == "map" {
-				fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)
-			} else {
-				fmt.Fprintln(env.Stderr, "  Merging parts...")
-			}
-		},
+		OnProgress: defaultProgressCallback(env.Stderr),
 	})
 	if err != nil {
 		if opts.keepAudio {
@@ -473,28 +472,9 @@ func writeRawTranscript(env *Env, path, content string) error {
 
 // liveWritePhase writes the final output atomically.
 func liveWritePhase(env *Env, output, content string) error {
-	// #nosec G302 G304 -- user-specified output file with standard permissions
-	f, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("output file already exists: %s: %w", output, ErrOutputExists)
-		}
-		return fmt.Errorf("cannot create output file: %w", err)
+	if err := writeFileAtomic(output, content); err != nil {
+		return err
 	}
-
-	writeErr := func() error {
-		defer func() { _ = f.Close() }()
-		if _, err := f.WriteString(content); err != nil {
-			return fmt.Errorf("failed to write output: %w", err)
-		}
-		return nil
-	}()
-
-	if writeErr != nil {
-		_ = os.Remove(output)
-		return writeErr
-	}
-
 	fmt.Fprintf(env.Stderr, "Done: %s\n", output)
 	return nil
 }
@@ -510,7 +490,11 @@ func runLive(parentCtx context.Context, env *Env, opts liveOptions) error {
 	}
 
 	// Resolve output path using config output-dir.
+	// EnsureExtension adds .md only when path has no extension.
+	// Paths with non-.md extensions are preserved and trigger a warning below.
 	opts.output = config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultLiveFilename(env.Now))
+	opts.output = config.EnsureExtension(opts.output, ".md")
+	warnNonMarkdownExtension(env.Stderr, opts.output)
 
 	// Set up interrupt handler for double Ctrl+C detection.
 	interruptHandler, ctx := interrupt.NewHandler(parentCtx)
@@ -532,45 +516,55 @@ func runLive(parentCtx context.Context, env *Env, opts liveOptions) error {
 
 	// Handle recording interruption
 	if recordErr != nil {
-		// Check if this was an interrupt with valid partial recording
-		if interruptHandler.WasInterrupted() && recordResult != nil && recordResult.audioPath != "" {
-			// Check if we have a valid partial recording
-			if size, statErr := fileSize(recordResult.audioPath); statErr == nil && size > 0 {
-				// Ask user intent via timeout window
-				behavior := interruptHandler.WaitForDecision(
-					"Ctrl+C again to discard, wait 2s to transcribe partial recording...")
-
-				if behavior == interrupt.Abort {
-					return context.Canceled
-				}
-
-				// Continue with transcription of partial recording
-				fmt.Fprintf(env.Stderr, "\nContinuing with partial recording (%s)...\n", format.Size(size))
-
-				// Move audio to final location if --keep-audio
-				if opts.keepAudio {
-					if moveErr := moveFile(recordResult.audioPath, lctx.audioPath); moveErr != nil {
-						fmt.Fprintf(env.Stderr, "Warning: failed to save audio: %v\n", moveErr)
-					} else {
-						recordResult.audioPath = lctx.audioPath
-						fmt.Fprintf(env.Stderr, "Audio saved: %s\n", lctx.audioPath)
-					}
-				}
-
-				// Create fresh context for transcription with timeout (original is canceled).
-				// 30 minutes should be sufficient for transcription + restructuring of any recording.
-				transcribeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-				defer cancel()
-
-				// Continue to transcription
-				return runLiveTranscriptionPipeline(transcribeCtx, env, lctx, opts, recordResult.audioPath)
-			}
-		}
-		return recordErr
+		return handleRecordingInterrupt(env, interruptHandler, recordResult, recordErr, lctx, opts)
 	}
 
 	// Normal flow: recording completed successfully
 	return runLiveTranscriptionPipeline(ctx, env, lctx, opts, recordResult.audioPath)
+}
+
+// handleRecordingInterrupt handles the case where recording was interrupted.
+// If a valid partial recording exists, it asks the user whether to continue
+// with transcription or abort. Returns the original recordErr if not a recoverable
+// interrupt, or runs transcription on partial recording.
+func handleRecordingInterrupt(env *Env, handler *interrupt.Handler, result *liveRecordResult, recordErr error, lctx *liveContext, opts liveOptions) error {
+	// Check if this was an interrupt with valid partial recording
+	if !handler.WasInterrupted() || result == nil || result.audioPath == "" {
+		return recordErr
+	}
+
+	size, statErr := fileSize(result.audioPath)
+	if statErr != nil || size == 0 {
+		return recordErr
+	}
+
+	// Ask user intent via timeout window
+	behavior := handler.WaitForDecision(
+		"Ctrl+C again to discard, wait 2s to transcribe partial recording...")
+
+	if behavior == interrupt.Abort {
+		return context.Canceled
+	}
+
+	// Continue with transcription of partial recording
+	fmt.Fprintf(env.Stderr, "\nContinuing with partial recording (%s)...\n", format.Size(size))
+
+	// Move audio to final location if --keep-audio
+	if opts.keepAudio {
+		if moveErr := moveFile(result.audioPath, lctx.audioPath); moveErr != nil {
+			fmt.Fprintf(env.Stderr, "Warning: failed to save audio: %v\n", moveErr)
+		} else {
+			result.audioPath = lctx.audioPath
+			fmt.Fprintf(env.Stderr, "Audio saved: %s\n", lctx.audioPath)
+		}
+	}
+
+	// Create fresh context for transcription (original is cancelled by interrupt).
+	// We use context.Background() because the parent context is already done.
+	transcribeCtx, cancel := context.WithTimeout(context.Background(), postInterruptTimeout)
+	defer cancel()
+
+	return runLiveTranscriptionPipeline(transcribeCtx, env, lctx, opts, result.audioPath)
 }
 
 // runLiveTranscriptionPipeline runs the transcription and restructuring phases.
