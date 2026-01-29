@@ -216,15 +216,15 @@ var ErrUnsupportedProvider = fmt.Errorf("unsupported provider (use %q or %q)", P
 func (defaultRestructurerFactory) NewMapReducer(provider Provider, apiKey string, opts ...restructure.MapReduceOption) (restructure.MapReducer, error) {
 	switch {
 	case provider.IsDeepSeek():
-		base, err := restructure.NewDeepSeekRestructurer(apiKey)
+		restructurer, err := restructure.NewDeepSeekRestructurer(apiKey)
 		if err != nil {
 			return nil, err
 		}
-		return restructure.NewMapReduceRestructurer(base, opts...), nil
+		return restructure.NewMapReduceRestructurer(restructurer, opts...), nil
 	case provider.IsOpenAI():
 		client := openai.NewClient(apiKey)
-		base := restructure.NewOpenAIRestructurer(client)
-		return restructure.NewMapReduceRestructurer(base, opts...), nil
+		restructurer := restructure.NewOpenAIRestructurer(client)
+		return restructure.NewMapReduceRestructurer(restructurer, opts...), nil
 	default:
 		// Defensive: Provider type guarantees validity, but handle zero value
 		// or future provider additions gracefully.
