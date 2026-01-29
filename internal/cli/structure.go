@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -134,8 +133,12 @@ func runStructure(cmd *cobra.Command, env *Env, opts structureOptions) error {
 	}
 
 	// 3. Resolve output path (derive default from input basename only)
+	// EnsureExtension adds .md only when path has no extension.
+	// Paths with non-.md extensions are preserved and trigger a warning below.
 	defaultOutput := deriveStructuredOutputPath(filepath.Base(opts.inputPath))
 	output := config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultOutput)
+	output = config.EnsureExtension(output, ".md")
+	warnNonMarkdownExtension(env.Stderr, output)
 
 	// 4. Provider defaulting
 	provider := opts.provider.OrDefault()
@@ -177,26 +180,8 @@ func runStructure(cmd *cobra.Command, env *Env, opts structureOptions) error {
 
 	// === WRITE OUTPUT ===
 
-	// #nosec G302 G304 -- user-specified output file with standard permissions
-	f, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("output file already exists: %s: %w", output, ErrOutputExists)
-		}
-		return fmt.Errorf("cannot create output file: %w", err)
-	}
-
-	writeErr := func() error {
-		defer func() { _ = f.Close() }()
-		if _, err := f.WriteString(result); err != nil {
-			return fmt.Errorf("failed to write output: %w", err)
-		}
-		return nil
-	}()
-
-	if writeErr != nil {
-		_ = os.Remove(output)
-		return writeErr
+	if err := writeFileAtomic(output, result); err != nil {
+		return err
 	}
 
 	fmt.Fprintf(env.Stderr, "Done: %s\n", output)

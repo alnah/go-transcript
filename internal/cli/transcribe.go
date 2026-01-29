@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -197,8 +196,12 @@ func runTranscribe(cmd *cobra.Command, env *Env, opts transcribeOptions) error {
 	}
 
 	// 4. Output path (resolve with output-dir, derive default from input if needed)
+	// EnsureExtension adds .md only when path has no extension.
+	// Paths with non-.md extensions are preserved and trigger a warning below.
 	defaultOutput := deriveOutputPath(filepath.Base(opts.inputPath))
 	output := config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultOutput)
+	output = config.EnsureExtension(output, ".md")
+	warnNonMarkdownExtension(env.Stderr, output)
 
 	// 5. Translate requires template
 	if !opts.outputLang.IsZero() && opts.template.IsZero() {
@@ -292,13 +295,7 @@ func runTranscribe(cmd *cobra.Command, env *Env, opts transcribeOptions) error {
 			Template:   opts.template,
 			Provider:   provider,
 			OutputLang: effectiveOutputLang,
-			OnProgress: func(phase string, current, total int) {
-				if phase == "map" {
-					fmt.Fprintf(env.Stderr, "  Processing part %d/%d...\n", current, total)
-				} else {
-					fmt.Fprintln(env.Stderr, "  Merging parts...")
-				}
-			},
+			OnProgress: defaultProgressCallback(env.Stderr),
 		})
 		if err != nil {
 			return err
@@ -307,29 +304,8 @@ func runTranscribe(cmd *cobra.Command, env *Env, opts transcribeOptions) error {
 
 	// === WRITE OUTPUT ===
 
-	// Use O_EXCL to atomically check existence and create file (avoids race condition)
-	// #nosec G302 G304 -- user-specified output file with standard permissions
-	f, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("output file already exists: %s: %w", output, ErrOutputExists)
-		}
-		return fmt.Errorf("cannot create output file: %w", err)
-	}
-
-	// Ensure file is closed even on write error
-	writeErr := func() error {
-		defer func() { _ = f.Close() }()
-		if _, err := f.WriteString(finalOutput); err != nil {
-			return fmt.Errorf("failed to write output: %w", err)
-		}
-		return nil
-	}()
-
-	if writeErr != nil {
-		// Attempt to remove partial file on write failure
-		_ = os.Remove(output)
-		return writeErr
+	if err := writeFileAtomic(output, finalOutput); err != nil {
+		return err
 	}
 
 	fmt.Fprintf(env.Stderr, "Done: %s\n", output)
