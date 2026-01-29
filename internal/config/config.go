@@ -281,6 +281,24 @@ func ExpandPath(path string) string {
 	return path
 }
 
+// EnsureExtension adds ext to path if path has no extension.
+// If path already has an extension (including hidden files like ".bashrc"),
+// it is returned unchanged.
+//
+// Examples:
+//
+//	EnsureExtension("notes", ".md")           → "notes.md"
+//	EnsureExtension("notes.md", ".md")        → "notes.md"
+//	EnsureExtension("notes.txt", ".md")       → "notes.txt"
+//	EnsureExtension(".bashrc", ".md")         → ".bashrc"
+//	EnsureExtension("/path/to/notes", ".md")  → "/path/to/notes.md"
+func EnsureExtension(path, ext string) string {
+	if filepath.Ext(path) == "" {
+		return path + ext
+	}
+	return path
+}
+
 // EnsureOutputDir validates a directory path and creates it if it doesn't exist.
 // Returns nil if the directory exists and is writable, or was successfully created.
 // Returns an error describing the problem otherwise.

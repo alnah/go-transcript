@@ -161,6 +161,62 @@ func TestResolveOutputPath(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestEnsureExtension - Pure function for extension enforcement
+// ---------------------------------------------------------------------------
+
+func TestEnsureExtension(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		ext  string
+		want string
+	}{
+		// No extension - should add
+		{"no extension simple", "notes", ".md", "notes.md"},
+		{"no extension with path", "/path/to/notes", ".md", "/path/to/notes.md"},
+		{"no extension relative", "dir/notes", ".md", "dir/notes.md"},
+
+		// Already has .md - unchanged
+		{"already has .md", "notes.md", ".md", "notes.md"},
+		{"already has .md with path", "/path/notes.md", ".md", "/path/notes.md"},
+		{"already has .MD uppercase", "notes.MD", ".md", "notes.MD"},
+
+		// Has different extension - unchanged (not our job to modify)
+		{"has .txt extension", "notes.txt", ".md", "notes.txt"},
+		{"has .json extension", "data.json", ".md", "data.json"},
+		{"has .ogg extension", "audio.ogg", ".md", "audio.ogg"},
+
+		// Hidden files Unix - unchanged (filepath.Ext returns the "extension")
+		{"hidden file", ".bashrc", ".md", ".bashrc"},
+		{"hidden in path", "/home/.config", ".md", "/home/.config"},
+		{"hidden with ext", ".notes.md", ".md", ".notes.md"},
+
+		// Edge cases
+		{"empty path", "", ".md", ".md"},
+		{"dot in name", "notes.2024", ".md", "notes.2024"},
+		{"multiple dots", "my.notes.backup", ".md", "my.notes.backup"},
+		{"trailing dot", "notes.", ".md", "notes."},
+
+		// Different extensions
+		{"ogg extension", "audio", ".ogg", "audio.ogg"},
+		{"txt extension", "file", ".txt", "file.txt"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := EnsureExtension(tt.path, tt.ext)
+			if got != tt.want {
+				t.Errorf("EnsureExtension(%q, %q) = %q, want %q",
+					tt.path, tt.ext, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // TestExpandPath - Pure function for ~ expansion
 // ---------------------------------------------------------------------------
 
