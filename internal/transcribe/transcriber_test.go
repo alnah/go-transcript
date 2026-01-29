@@ -1,9 +1,13 @@
 package transcribe_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"sync/atomic"
@@ -27,40 +31,6 @@ import (
 // - Exact backoff timing (1s, 2s, 4s...) - implementation detail.
 // - Precise maxParallel verification - only smoke-tested via channel blocking.
 // - Network I/O with real OpenAI client - requires integration tests.
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// makeSegment creates an AudioResponse segment with only the fields used in tests.
-// This avoids duplicating the full anonymous struct from go-openai.
-func makeSegment(id int, text string) struct {
-	ID               int     `json:"id"`
-	Seek             int     `json:"seek"`
-	Start            float64 `json:"start"`
-	End              float64 `json:"end"`
-	Text             string  `json:"text"`
-	Tokens           []int   `json:"tokens"`
-	Temperature      float64 `json:"temperature"`
-	AvgLogprob       float64 `json:"avg_logprob"`
-	CompressionRatio float64 `json:"compression_ratio"`
-	NoSpeechProb     float64 `json:"no_speech_prob"`
-	Transient        bool    `json:"transient"`
-} {
-	return struct {
-		ID               int     `json:"id"`
-		Seek             int     `json:"seek"`
-		Start            float64 `json:"start"`
-		End              float64 `json:"end"`
-		Text             string  `json:"text"`
-		Tokens           []int   `json:"tokens"`
-		Temperature      float64 `json:"temperature"`
-		AvgLogprob       float64 `json:"avg_logprob"`
-		CompressionRatio float64 `json:"compression_ratio"`
-		NoSpeechProb     float64 `json:"no_speech_prob"`
-		Transient        bool    `json:"transient"`
-	}{ID: id, Text: text}
-}
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -106,6 +76,99 @@ func (m *mockAudioTranscriber) LastRequest() openai.AudioRequest {
 		return openai.AudioRequest{}
 	}
 	return m.calls[len(m.calls)-1]
+}
+
+// mockHTTPClient implements httpDoer for testing diarization HTTP calls.
+type mockHTTPClient struct {
+	mu              sync.Mutex
+	requests        []*http.Request
+	requestBodies   [][]byte // Captured request bodies
+	responses       []*http.Response
+	errors          []error
+	callIndex       int
+	statusCode      int
+	responseBody    string
+	chunkingCapture string // Captured chunking_strategy value
+}
+
+func newMockHTTPClient(statusCode int, responseBody string) *mockHTTPClient {
+	return &mockHTTPClient{
+		statusCode:   statusCode,
+		responseBody: responseBody,
+	}
+}
+
+func (m *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Capture request body for verification
+	if req.Body != nil {
+		body, _ := io.ReadAll(req.Body)
+		m.requestBodies = append(m.requestBodies, body)
+		// Check for chunking_strategy in the multipart form
+		if bytes.Contains(body, []byte("chunking_strategy")) {
+			m.chunkingCapture = "found"
+			// Extract value if possible
+			if idx := bytes.Index(body, []byte("chunking_strategy")); idx != -1 {
+				// Look for "auto" after the field name
+				if bytes.Contains(body[idx:], []byte("auto")) {
+					m.chunkingCapture = "auto"
+				}
+			}
+		}
+		req.Body = io.NopCloser(bytes.NewReader(body))
+	}
+
+	m.requests = append(m.requests, req)
+
+	idx := m.callIndex
+	m.callIndex++
+
+	if idx < len(m.errors) && m.errors[idx] != nil {
+		return nil, m.errors[idx]
+	}
+
+	if idx < len(m.responses) {
+		return m.responses[idx], nil
+	}
+
+	// Default response
+	return &http.Response{
+		StatusCode: m.statusCode,
+		Body:       io.NopCloser(bytes.NewReader([]byte(m.responseBody))),
+		Header:     make(http.Header),
+	}, nil
+}
+
+func (m *mockHTTPClient) CallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.requests)
+}
+
+func (m *mockHTTPClient) HasChunkingStrategy() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.chunkingCapture != ""
+}
+
+func (m *mockHTTPClient) ChunkingStrategyValue() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.chunkingCapture
+}
+
+// createTempAudioFile creates a temporary file for testing diarization.
+// Returns the path and a cleanup function.
+func createTempAudioFile(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.ogg")
+	if err := os.WriteFile(path, []byte("fake audio content"), 0644); err != nil {
+		t.Fatalf("failed to create temp audio file: %v", err)
+	}
+	return path
 }
 
 // mockTranscriber implements transcribe.Transcriber for TranscribeAll tests.
@@ -277,71 +340,73 @@ func TestTranscribe_Success(t *testing.T) {
 
 	t.Run("uses diarize model when diarize is true", func(t *testing.T) {
 		t.Parallel()
-		mock := &mockAudioTranscriber{
-			responses: []openai.AudioResponse{{Text: "text"}},
-		}
-		tr := transcribe.NewTestTranscriber(mock)
 
-		_, err := tr.Transcribe(context.Background(), "audio.mp3", transcribe.Options{
+		// Diarization uses direct HTTP, so we need a mock HTTP client and real file
+		audioPath := createTempAudioFile(t)
+		httpMock := newMockHTTPClient(http.StatusOK, `{"text": "diarized text", "segments": []}`)
+
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{}, // Not used for diarization
+			httpMock,
+			"test-api-key",
+		)
+
+		result, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
 			Diarize: true,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-
-		req := mock.LastRequest()
-		if req.Model != transcribe.ModelGPT4oTranscribeDiarize {
-			t.Errorf("Model = %q, want %q", req.Model, transcribe.ModelGPT4oTranscribeDiarize)
+		if result != "diarized text" {
+			t.Errorf("got %q, want %q", result, "diarized text")
 		}
-		if req.Format != transcribe.FormatDiarizedJSON {
-			t.Errorf("Format = %q, want %q", req.Format, transcribe.FormatDiarizedJSON)
+
+		// Verify HTTP was called (not the go-openai client)
+		if httpMock.CallCount() != 1 {
+			t.Errorf("HTTP call count = %d, want 1", httpMock.CallCount())
 		}
 	})
 }
 
 // ---------------------------------------------------------------------------
-// TestTranscribe_Diarization - Diarized output formatting
+// TestTranscribe_Diarization - Diarized output formatting via HTTP
 // ---------------------------------------------------------------------------
 
 func TestTranscribe_Diarization(t *testing.T) {
 	t.Parallel()
 
-	t.Run("formats segments with markers", func(t *testing.T) {
+	t.Run("formats segments with speaker labels", func(t *testing.T) {
 		t.Parallel()
-		mock := &mockAudioTranscriber{
-			responses: []openai.AudioResponse{
-				{Segments: []struct {
-					ID               int     `json:"id"`
-					Seek             int     `json:"seek"`
-					Start            float64 `json:"start"`
-					End              float64 `json:"end"`
-					Text             string  `json:"text"`
-					Tokens           []int   `json:"tokens"`
-					Temperature      float64 `json:"temperature"`
-					AvgLogprob       float64 `json:"avg_logprob"`
-					CompressionRatio float64 `json:"compression_ratio"`
-					NoSpeechProb     float64 `json:"no_speech_prob"`
-					Transient        bool    `json:"transient"`
-				}{
-					makeSegment(0, "Hello there"),
-					makeSegment(1, "General Kenobi"),
-				}},
-			},
-		}
-		tr := transcribe.NewTestTranscriber(mock)
+		audioPath := createTempAudioFile(t)
 
-		result, err := tr.Transcribe(context.Background(), "audio.mp3", transcribe.Options{
+		// Response with speaker information
+		responseJSON := `{
+			"text": "Hello there General Kenobi",
+			"segments": [
+				{"id": "seg_001", "start": 0.0, "end": 1.5, "text": "Hello there", "speaker": "Speaker A"},
+				{"id": "seg_002", "start": 1.5, "end": 3.0, "text": "General Kenobi", "speaker": "Speaker B"}
+			]
+		}`
+		httpMock := newMockHTTPClient(http.StatusOK, responseJSON)
+
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+		)
+
+		result, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
 			Diarize: true,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Verify segment markers are present (pattern-based, not exact format)
-		segmentPattern := regexp.MustCompile(`\[Segment \d+\]`)
-		matches := segmentPattern.FindAllString(result, -1)
+		// Verify speaker markers are present
+		speakerPattern := regexp.MustCompile(`\[Speaker [AB]\]`)
+		matches := speakerPattern.FindAllString(result, -1)
 		if len(matches) != 2 {
-			t.Errorf("expected 2 segment markers, got %d in: %q", len(matches), result)
+			t.Errorf("expected 2 speaker markers, got %d in: %q", len(matches), result)
 		}
 
 		// Verify content is present
@@ -355,15 +420,18 @@ func TestTranscribe_Diarization(t *testing.T) {
 
 	t.Run("falls back to text when no segments", func(t *testing.T) {
 		t.Parallel()
-		mock := &mockAudioTranscriber{
-			responses: []openai.AudioResponse{{
-				Text:     "fallback text",
-				Segments: nil,
-			}},
-		}
-		tr := transcribe.NewTestTranscriber(mock)
+		audioPath := createTempAudioFile(t)
 
-		result, err := tr.Transcribe(context.Background(), "audio.mp3", transcribe.Options{
+		responseJSON := `{"text": "fallback text", "segments": []}`
+		httpMock := newMockHTTPClient(http.StatusOK, responseJSON)
+
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+		)
+
+		result, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
 			Diarize: true,
 		})
 		if err != nil {
@@ -375,38 +443,333 @@ func TestTranscribe_Diarization(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to text when segments empty", func(t *testing.T) {
+	t.Run("uses speaker ID as fallback when speaker field empty", func(t *testing.T) {
 		t.Parallel()
-		// Empty segments slice (not nil) should still fall back to Text
-		mock := &mockAudioTranscriber{
-			responses: []openai.AudioResponse{{
-				Text: "fallback text",
-				Segments: []struct {
-					ID               int     `json:"id"`
-					Seek             int     `json:"seek"`
-					Start            float64 `json:"start"`
-					End              float64 `json:"end"`
-					Text             string  `json:"text"`
-					Tokens           []int   `json:"tokens"`
-					Temperature      float64 `json:"temperature"`
-					AvgLogprob       float64 `json:"avg_logprob"`
-					CompressionRatio float64 `json:"compression_ratio"`
-					NoSpeechProb     float64 `json:"no_speech_prob"`
-					Transient        bool    `json:"transient"`
-				}{}, // Empty slice
-			}},
-		}
-		tr := transcribe.NewTestTranscriber(mock)
+		audioPath := createTempAudioFile(t)
 
-		result, err := tr.Transcribe(context.Background(), "audio.mp3", transcribe.Options{
+		// Response without speaker field (uses ID as fallback)
+		responseJSON := `{
+			"text": "Hello",
+			"segments": [
+				{"id": "seg_001", "start": 0.0, "end": 1.0, "text": "Hello", "speaker": ""}
+			]
+		}`
+		httpMock := newMockHTTPClient(http.StatusOK, responseJSON)
+
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+		)
+
+		result, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
 			Diarize: true,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if result != "fallback text" {
-			t.Errorf("got %q, want %q", result, "fallback text")
+		// Should use "Speaker <id>" format when speaker field is empty
+		if !regexp.MustCompile(`\[Speaker seg_001\]`).MatchString(result) {
+			t.Errorf("expected speaker ID fallback in: %q", result)
+		}
+	})
+
+	t.Run("sends chunking_strategy auto parameter", func(t *testing.T) {
+		t.Parallel()
+		audioPath := createTempAudioFile(t)
+
+		responseJSON := `{"text": "transcribed", "segments": []}`
+		httpMock := newMockHTTPClient(http.StatusOK, responseJSON)
+
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+		)
+
+		_, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
+			Diarize: true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Verify chunking_strategy was sent
+		if !httpMock.HasChunkingStrategy() {
+			t.Error("chunking_strategy was not included in request")
+		}
+		if httpMock.ChunkingStrategyValue() != "auto" {
+			t.Errorf("chunking_strategy = %q, want %q", httpMock.ChunkingStrategyValue(), "auto")
+		}
+	})
+
+	t.Run("returns error for nonexistent audio file", func(t *testing.T) {
+		t.Parallel()
+
+		httpMock := newMockHTTPClient(http.StatusOK, `{"text": "ok", "segments": []}`)
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+		)
+
+		_, err := tr.Transcribe(context.Background(), "/nonexistent/path/audio.ogg", transcribe.Options{
+			Diarize: true,
+		})
+		if err == nil {
+			t.Fatal("expected error for nonexistent file, got nil")
+		}
+		// HTTP should NOT have been called
+		if httpMock.CallCount() != 0 {
+			t.Errorf("HTTP call count = %d, want 0", httpMock.CallCount())
+		}
+	})
+
+	t.Run("passes language to diarization request", func(t *testing.T) {
+		t.Parallel()
+		audioPath := createTempAudioFile(t)
+
+		httpMock := newMockHTTPClient(http.StatusOK, `{"text": "bonjour", "segments": []}`)
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+		)
+
+		_, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
+			Diarize:  true,
+			Language: lang.MustParse("fr-FR"),
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Verify language was included in request body
+		if len(httpMock.requestBodies) == 0 {
+			t.Fatal("no request body captured")
+		}
+		body := string(httpMock.requestBodies[0])
+		if !bytes.Contains([]byte(body), []byte("language")) {
+			t.Error("language field not found in request")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestTranscribe_DiarizationErrors - HTTP error handling for diarization
+// ---------------------------------------------------------------------------
+
+func TestTranscribe_DiarizationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		statusCode   int
+		responseBody string
+		wantSentinel error
+	}{
+		{
+			name:         "401 unauthorized returns ErrAuthFailed",
+			statusCode:   http.StatusUnauthorized,
+			responseBody: `{"error": {"message": "Invalid API key", "type": "invalid_request_error"}}`,
+			wantSentinel: transcribe.ErrAuthFailed,
+		},
+		{
+			name:         "429 rate limit returns ErrRateLimit",
+			statusCode:   http.StatusTooManyRequests,
+			responseBody: `{"error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}}`,
+			wantSentinel: transcribe.ErrRateLimit,
+		},
+		{
+			name:         "429 with quota message returns ErrQuotaExceeded",
+			statusCode:   http.StatusTooManyRequests,
+			responseBody: `{"error": {"message": "You exceeded your quota", "type": "insufficient_quota"}}`,
+			wantSentinel: transcribe.ErrQuotaExceeded,
+		},
+		{
+			name:         "429 with billing message returns ErrQuotaExceeded",
+			statusCode:   http.StatusTooManyRequests,
+			responseBody: `{"error": {"message": "Please check your billing details", "type": "billing_error"}}`,
+			wantSentinel: transcribe.ErrQuotaExceeded,
+		},
+		{
+			name:         "400 bad request returns ErrBadRequest",
+			statusCode:   http.StatusBadRequest,
+			responseBody: `{"error": {"message": "Invalid file format", "type": "invalid_request_error"}}`,
+			wantSentinel: transcribe.ErrBadRequest,
+		},
+		{
+			name:         "408 timeout returns ErrTimeout",
+			statusCode:   http.StatusRequestTimeout,
+			responseBody: `{"error": {"message": "Request timeout", "type": "timeout"}}`,
+			wantSentinel: transcribe.ErrTimeout,
+		},
+		{
+			name:         "504 gateway timeout returns ErrTimeout",
+			statusCode:   http.StatusGatewayTimeout,
+			responseBody: `{"error": {"message": "Gateway timeout", "type": "timeout"}}`,
+			wantSentinel: transcribe.ErrTimeout,
+		},
+		{
+			name:         "500 server error returns ErrTimeout (retryable)",
+			statusCode:   http.StatusInternalServerError,
+			responseBody: `{"error": {"message": "Internal server error", "type": "server_error"}}`,
+			wantSentinel: transcribe.ErrTimeout,
+		},
+		{
+			name:         "502 bad gateway returns ErrTimeout (retryable)",
+			statusCode:   http.StatusBadGateway,
+			responseBody: `{"error": {"message": "Bad gateway", "type": "server_error"}}`,
+			wantSentinel: transcribe.ErrTimeout,
+		},
+		{
+			name:         "503 service unavailable returns ErrTimeout (retryable)",
+			statusCode:   http.StatusServiceUnavailable,
+			responseBody: `{"error": {"message": "Service unavailable", "type": "server_error"}}`,
+			wantSentinel: transcribe.ErrTimeout,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			audioPath := createTempAudioFile(t)
+
+			httpMock := newMockHTTPClient(tt.statusCode, tt.responseBody)
+			tr := transcribe.NewTestTranscriberWithHTTP(
+				&mockAudioTranscriber{},
+				httpMock,
+				"test-api-key",
+				transcribe.WithMaxRetries(0), // Disable retries to get immediate error
+			)
+
+			_, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
+				Diarize: true,
+			})
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, tt.wantSentinel) {
+				t.Errorf("error = %v, want sentinel %v", err, tt.wantSentinel)
+			}
+		})
+	}
+
+	t.Run("malformed JSON error response returns generic error", func(t *testing.T) {
+		t.Parallel()
+		audioPath := createTempAudioFile(t)
+
+		httpMock := newMockHTTPClient(http.StatusBadRequest, `not valid json`)
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+			transcribe.WithMaxRetries(0),
+		)
+
+		_, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
+			Diarize: true,
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		// Should contain HTTP status and raw body
+		if !regexp.MustCompile(`HTTP 400`).MatchString(err.Error()) {
+			t.Errorf("error should mention HTTP status: %v", err)
+		}
+	})
+
+	t.Run("diarization retries on rate limit", func(t *testing.T) {
+		t.Parallel()
+		audioPath := createTempAudioFile(t)
+
+		httpMock := &mockHTTPClient{
+			statusCode:   http.StatusOK,
+			responseBody: `{"text": "success", "segments": []}`,
+			responses: []*http.Response{
+				// First call: rate limit error
+				{
+					StatusCode: http.StatusTooManyRequests,
+					Body:       io.NopCloser(bytes.NewReader([]byte(`{"error": {"message": "Rate limit"}}`))),
+					Header:     make(http.Header),
+				},
+				// Second call: success
+				{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(bytes.NewReader([]byte(`{"text": "success after retry", "segments": []}`))),
+					Header:     make(http.Header),
+				},
+			},
+		}
+
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+			transcribe.WithMaxRetries(3),
+			transcribe.WithRetryDelays(1*time.Millisecond, 10*time.Millisecond),
+		)
+
+		result, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
+			Diarize: true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != "success after retry" {
+			t.Errorf("got %q, want %q", result, "success after retry")
+		}
+		if httpMock.CallCount() != 2 {
+			t.Errorf("HTTP call count = %d, want 2", httpMock.CallCount())
+		}
+	})
+
+	t.Run("diarization does not retry on auth failure", func(t *testing.T) {
+		t.Parallel()
+		audioPath := createTempAudioFile(t)
+
+		httpMock := newMockHTTPClient(http.StatusUnauthorized, `{"error": {"message": "Invalid API key"}}`)
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+			transcribe.WithMaxRetries(5),
+			transcribe.WithRetryDelays(1*time.Millisecond, 10*time.Millisecond),
+		)
+
+		_, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
+			Diarize: true,
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		// Should NOT have retried
+		if httpMock.CallCount() != 1 {
+			t.Errorf("HTTP call count = %d, want 1 (no retry)", httpMock.CallCount())
+		}
+	})
+
+	t.Run("malformed diarize response returns parse error", func(t *testing.T) {
+		t.Parallel()
+		audioPath := createTempAudioFile(t)
+
+		httpMock := newMockHTTPClient(http.StatusOK, `{"text": "ok", "segments": "not_an_array"}`)
+		tr := transcribe.NewTestTranscriberWithHTTP(
+			&mockAudioTranscriber{},
+			httpMock,
+			"test-api-key",
+			transcribe.WithMaxRetries(0),
+		)
+
+		_, err := tr.Transcribe(context.Background(), audioPath, transcribe.Options{
+			Diarize: true,
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !regexp.MustCompile(`failed to parse`).MatchString(err.Error()) {
+			t.Errorf("error should mention parse failure: %v", err)
 		}
 	})
 }
