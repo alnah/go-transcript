@@ -376,29 +376,60 @@ func TestParseAVFoundationDevices(t *testing.T) {
 func TestParseDShowDevices(t *testing.T) {
 	t.Parallel()
 
-	// Real FFmpeg output sample
-	stderr := `[dshow @ 0x000001] DirectShow video devices
+	t.Run("section header format", func(t *testing.T) {
+		t.Parallel()
+
+		stderr := `[dshow @ 0x000001] DirectShow video devices
 [dshow @ 0x000001]  "Integrated Camera"
 [dshow @ 0x000001] DirectShow audio devices
 [dshow @ 0x000001]  "Microphone (Realtek High Definition Audio)"
 [dshow @ 0x000001]  "Stereo Mix (Realtek High Definition Audio)"`
 
-	devices := audio.ParseDShowDevices(stderr)
+		devices := audio.ParseDShowDevices(stderr)
 
-	// Should have 2 audio devices
-	if len(devices) != 2 {
-		t.Errorf("ParseDShowDevices() returned %d devices, want 2", len(devices))
-	}
+		if len(devices) != 2 {
+			t.Fatalf("ParseDShowDevices() returned %d devices, want 2", len(devices))
+		}
 
-	// First device should be the microphone (prioritized)
-	if len(devices) > 0 && !strings.Contains(devices[0], "Microphone") {
-		t.Errorf("ParseDShowDevices() first device = %q, want microphone", devices[0])
-	}
+		if !strings.Contains(devices[0], "Microphone") {
+			t.Errorf("ParseDShowDevices() first device = %q, want microphone", devices[0])
+		}
 
-	// Stereo Mix should be last (virtual device deprioritized)
-	if len(devices) > 0 && !strings.Contains(devices[len(devices)-1], "Stereo Mix") {
-		t.Errorf("ParseDShowDevices() last device = %q, want Stereo Mix", devices[len(devices)-1])
-	}
+		if !strings.Contains(devices[len(devices)-1], "Stereo Mix") {
+			t.Errorf("ParseDShowDevices() last device = %q, want Stereo Mix", devices[len(devices)-1])
+		}
+	})
+
+	t.Run("suffix format", func(t *testing.T) {
+		t.Parallel()
+
+		// Real output from gyan.dev FFmpeg build on Windows (Portuguese locale).
+		stderr := `[dshow @ 000001b3cf0fadc0] "Iriun Webcam" (none)
+[dshow @ 000001b3cf0fadc0]   Alternative name "@device_pnp_\\?\root#camera#0000"
+[dshow @ 000001b3cf0fadc0] "HD User Facing" (video)
+[dshow @ 000001b3cf0fadc0]   Alternative name "@device_pnp_\\?\usb#vid_04f2"
+[dshow @ 000001b3cf0fadc0] "CABLE Output (VB-Audio Virtual Cable)" (audio)
+[dshow @ 000001b3cf0fadc0]   Alternative name "@device_cm_{33D9A762}"
+[dshow @ 000001b3cf0fadc0] "Microfone (Iriun Webcam)" (audio)
+[dshow @ 000001b3cf0fadc0]   Alternative name "@device_cm_{33D9A762}"
+[dshow @ 000001b3cf0fadc0] "Headset (AirPods Pro)" (audio)
+[dshow @ 000001b3cf0fadc0]   Alternative name "@device_cm_{33D9A762}"
+[dshow @ 000001b3cf0fadc0] "Grupo de microfones (Tecnologia Intel)" (audio)
+[dshow @ 000001b3cf0fadc0]   Alternative name "@device_cm_{33D9A762}"`
+
+		devices := audio.ParseDShowDevices(stderr)
+
+		// Should have 4 audio devices (no video or none types).
+		if len(devices) != 4 {
+			t.Fatalf("ParseDShowDevices() returned %d devices, want 4: %v", len(devices), devices)
+		}
+
+		// Microphone devices should come first (Microfone, Headset, Grupo de microfones).
+		// CABLE Output (virtual) should be last.
+		if !strings.Contains(devices[len(devices)-1], "CABLE Output") {
+			t.Errorf("ParseDShowDevices() last device = %q, want CABLE Output (virtual)", devices[len(devices)-1])
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

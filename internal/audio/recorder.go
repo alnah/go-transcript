@@ -533,38 +533,29 @@ func parseAVFoundationDevices(stderr string) []string {
 
 // parseDShowDevices parses Windows dshow device listing.
 // Returns devices sorted with real microphones first, virtual devices last.
-// Example output:
+//
+// Supports two output formats depending on the FFmpeg build:
+//
+// Section-header format (older builds):
 //
 //	[dshow @ 0x...] DirectShow video devices
 //	[dshow @ 0x...]  "Integrated Camera"
 //	[dshow @ 0x...] DirectShow audio devices
 //	[dshow @ 0x...]  "Microphone (Realtek High Definition Audio)"
 //	[dshow @ 0x...]  "Stereo Mix (Realtek High Definition Audio)"
+//
+// Suffix format (gyan.dev and some static builds):
+//
+//	[dshow @ 0x...] "HD User Facing" (video)
+//	[dshow @ 0x...] "Microphone (Realtek)" (audio)
+//	[dshow @ 0x...] "Stereo Mix (Realtek)" (audio)
 func parseDShowDevices(stderr string) []string {
 	var allDevices []string
-	inAudioSection := false
-	lines := strings.Split(stderr, "\n")
 
-	// Pattern: "Device Name" (quoted).
-	devicePattern := regexp.MustCompile(`"([^"]+)"`)
-
-	for _, line := range lines {
-		if strings.Contains(line, "DirectShow audio devices") {
-			inAudioSection = true
-			continue
-		}
-		if strings.Contains(line, "DirectShow video devices") {
-			inAudioSection = false
-			continue
-		}
-		if inAudioSection {
-			if matches := devicePattern.FindStringSubmatch(line); matches != nil {
-				// Skip "Alternative name" lines.
-				if !strings.Contains(line, "Alternative name") {
-					allDevices = append(allDevices, matches[1])
-				}
-			}
-		}
+	if strings.Contains(stderr, "DirectShow audio devices") {
+		allDevices = parseDShowSectionFormat(stderr)
+	} else {
+		allDevices = parseDShowSuffixFormat(stderr)
 	}
 
 	// Sort devices: real microphones first, then unknown, then virtual devices.
@@ -585,6 +576,59 @@ func parseDShowDevices(stderr string) []string {
 	result = append(result, unknown...)
 	result = append(result, virtual...)
 	return result
+}
+
+// parseDShowSectionFormat parses dshow output with section headers.
+// Used by older FFmpeg builds that group devices under "DirectShow audio/video devices".
+func parseDShowSectionFormat(stderr string) []string {
+	var devices []string
+	inAudioSection := false
+	lines := strings.Split(stderr, "\n")
+
+	devicePattern := regexp.MustCompile(`"([^"]+)"`)
+
+	for _, line := range lines {
+		if strings.Contains(line, "DirectShow audio devices") {
+			inAudioSection = true
+			continue
+		}
+		if strings.Contains(line, "DirectShow video devices") {
+			inAudioSection = false
+			continue
+		}
+		if inAudioSection {
+			if matches := devicePattern.FindStringSubmatch(line); matches != nil {
+				if !strings.Contains(line, "Alternative name") {
+					devices = append(devices, matches[1])
+				}
+			}
+		}
+	}
+	return devices
+}
+
+// parseDShowSuffixFormat parses dshow output with type suffixes.
+// Used by gyan.dev builds and some static builds that list devices as:
+//
+//	"DeviceName" (audio)
+//	"DeviceName" (video)
+//	"DeviceName" (none)
+func parseDShowSuffixFormat(stderr string) []string {
+	var devices []string
+	lines := strings.Split(stderr, "\n")
+
+	// Match: "DeviceName" (audio) - capture device name only for audio devices.
+	devicePattern := regexp.MustCompile(`"([^"]+)"\s+\(audio\)`)
+
+	for _, line := range lines {
+		if strings.Contains(line, "Alternative name") {
+			continue
+		}
+		if matches := devicePattern.FindStringSubmatch(line); matches != nil {
+			devices = append(devices, matches[1])
+		}
+	}
+	return devices
 }
 
 // parseALSADevices returns default ALSA devices.
