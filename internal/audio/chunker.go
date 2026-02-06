@@ -279,19 +279,19 @@ func parseTimeComponents(hours, minutes, seconds, fractional string) (time.Durat
 }
 
 // chunkEncodingArgs returns FFmpeg encoding arguments for chunk extraction.
-// Re-encodes to OGG Vorbis to ensure valid output even from corrupted/truncated sources.
+// Re-encodes to OGG Opus to ensure valid output even from corrupted/truncated sources.
 // Uses same parameters as recording (16kHz mono, ~50kbps) optimal for speech transcription.
 func chunkEncodingArgs() []string {
 	return []string{
-		"-c:a", "libvorbis",
+		"-c:a", "libopus",
 		"-ar", "16000",
 		"-ac", "1",
-		"-q:a", "2",
+		"-b:a", "50k",
 	}
 }
 
 // runExtractChunk extracts a segment from audioPath to chunkPath using FFmpeg.
-// Re-encodes to OGG Vorbis to ensure valid output even from corrupted/truncated sources.
+// Re-encodes to OGG Opus to ensure valid output even from corrupted/truncated sources.
 func runExtractChunk(ctx context.Context, cmd commandRunner, ffmpegPath, audioPath, chunkPath string, start, end time.Duration) error {
 	args := []string{
 		"-y",
@@ -731,7 +731,7 @@ func expandBoundariesForDuration(boundaries []time.Duration, maxDuration time.Du
 }
 
 // extractChunk extracts a segment from audioPath to chunkPath.
-// Re-encodes to OGG Vorbis to ensure valid output even from corrupted/truncated sources.
+// Re-encodes to OGG Opus to ensure valid output even from corrupted/truncated sources.
 func (sc *SilenceChunker) extractChunk(ctx context.Context, audioPath, chunkPath string, start, end time.Duration) error {
 	return runExtractChunk(ctx, sc.cmd, sc.ffmpegPath, audioPath, chunkPath, start, end)
 }

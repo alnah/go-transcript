@@ -35,6 +35,7 @@ type Env struct {
 	RestructurerFactory RestructurerFactory
 	ChunkerFactory      ChunkerFactory
 	RecorderFactory     RecorderFactory
+	DeviceListerFactory DeviceListerFactory
 }
 
 // FFmpegResolver resolves the path to the FFmpeg binary.
@@ -79,6 +80,11 @@ type RecorderFactory interface {
 	NewRecorder(ffmpegPath, device string) (audio.Recorder, error)
 	NewLoopbackRecorder(ctx context.Context, ffmpegPath string) (audio.Recorder, error)
 	NewMixRecorder(ctx context.Context, ffmpegPath, micDevice string) (audio.Recorder, error)
+}
+
+// DeviceListerFactory creates device listers for audio device discovery.
+type DeviceListerFactory interface {
+	NewDeviceLister(ffmpegPath string) (audio.DeviceLister, error)
 }
 
 // EnvOption configures an Env.
@@ -147,6 +153,13 @@ func WithRecorderFactory(f RecorderFactory) EnvOption {
 	}
 }
 
+// WithDeviceListerFactory sets the device lister factory.
+func WithDeviceListerFactory(f DeviceListerFactory) EnvOption {
+	return func(e *Env) {
+		e.DeviceListerFactory = f
+	}
+}
+
 // DefaultEnv returns an Env with production defaults.
 func DefaultEnv() *Env {
 	return &Env{
@@ -159,6 +172,7 @@ func DefaultEnv() *Env {
 		RestructurerFactory: &defaultRestructurerFactory{},
 		ChunkerFactory:      &defaultChunkerFactory{},
 		RecorderFactory:     &defaultRecorderFactory{},
+		DeviceListerFactory: &defaultDeviceListerFactory{},
 	}
 }
 
@@ -235,6 +249,13 @@ func (defaultChunkerFactory) NewSilenceChunker(ffmpegPath string) (audio.Chunker
 	return audio.NewSilenceChunker(ffmpegPath)
 }
 
+// defaultDeviceListerFactory implements DeviceListerFactory using audio package.
+type defaultDeviceListerFactory struct{}
+
+func (defaultDeviceListerFactory) NewDeviceLister(ffmpegPath string) (audio.DeviceLister, error) {
+	return audio.NewFFmpegRecorder(ffmpegPath, "")
+}
+
 // defaultRecorderFactory implements RecorderFactory using audio package.
 type defaultRecorderFactory struct{}
 
@@ -258,4 +279,5 @@ var (
 	_ RestructurerFactory = (*defaultRestructurerFactory)(nil)
 	_ ChunkerFactory      = (*defaultChunkerFactory)(nil)
 	_ RecorderFactory     = (*defaultRecorderFactory)(nil)
+	_ DeviceListerFactory = (*defaultDeviceListerFactory)(nil)
 )

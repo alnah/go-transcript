@@ -13,12 +13,20 @@ import (
 	"github.com/alnah/go-transcript/internal/ffmpeg"
 )
 
-// Compile-time interface implementation check.
-var _ Recorder = (*FFmpegRecorder)(nil)
+// Compile-time interface implementation checks.
+var (
+	_ Recorder     = (*FFmpegRecorder)(nil)
+	_ DeviceLister = (*FFmpegRecorder)(nil)
+)
 
 // Recorder records audio from an input device to a file.
 type Recorder interface {
 	Record(ctx context.Context, duration time.Duration, output string) error
+}
+
+// DeviceLister lists available audio input devices.
+type DeviceLister interface {
+	ListDevices(ctx context.Context) ([]string, error)
 }
 
 // deviceError wraps an error with actionable help text.
@@ -179,7 +187,7 @@ func NewFFmpegMixRecorder(ctx context.Context, ffmpegPath, micDevice string, opt
 }
 
 // Record records audio for the specified duration and writes to output.
-// The output format is OGG Vorbis at 16kHz mono ~50kbps (optimized for voice).
+// The output format is OGG Opus at 16kHz mono ~50kbps (optimized for voice).
 // If device is empty, it auto-detects the default audio input device.
 // Recording can be interrupted via context cancellation (Ctrl+C).
 func (r *FFmpegRecorder) Record(ctx context.Context, duration time.Duration, output string) error {
@@ -278,21 +286,58 @@ func (r *FFmpegRecorder) recordMix(ctx context.Context, duration time.Duration, 
 	return r.ffmpegRunner.RunGraceful(ctx, r.ffmpegPath, args, gracefulShutdownTimeout)
 }
 
-// encodingArgs returns the standard encoding arguments for OGG Vorbis output.
+// encodingArgs returns the standard encoding arguments for OGG Opus output.
 // This is the single source of truth for output encoding parameters.
 func encodingArgs() []string {
 	return []string{
-		"-c:a", "libvorbis", // OGG Vorbis codec.
+		"-c:a", "libopus", // OGG Opus codec.
 		"-ar", "16000", // 16kHz sample rate.
 		"-ac", "1", // Mono.
-		"-q:a", "2", // Quality ~50kbps.
+		"-b:a", "50k", // 50kbps bitrate.
 	}
 }
 
-// ListDevices returns a list of available audio input devices.
-// This can be used to help users select a device via --device flag.
+// ListDevices returns a list of available audio input devices for display.
+// Each entry includes both the device identifier and human-readable name.
+// On macOS: ":0  MacBook Pro Microphone"
+// On Windows: "Microphone (Realtek High Definition Audio)"
+// On Linux: "alsa_input.pci-0000_00_1f.3.analog-stereo"
 func (r *FFmpegRecorder) ListDevices(ctx context.Context) ([]string, error) {
-	return r.listDevices(ctx)
+	return r.listDevicesForDisplay(ctx)
+}
+
+// listDevicesForDisplay queries FFmpeg and returns formatted device strings.
+func (r *FFmpegRecorder) listDevicesForDisplay(ctx context.Context) ([]string, error) {
+	format := inputFormat()
+
+	// On Linux, try PulseAudio first (display format same as ID).
+	if runtime.GOOS == "linux" {
+		if devices := r.listPulseDevicesInternal(ctx); len(devices) > 0 {
+			return devices, nil
+		}
+	}
+
+	args := listDevicesArgs(format)
+
+	stderr, err := r.ffmpegRunner.RunOutput(ctx, r.ffmpegPath, args)
+	if err != nil && stderr == "" {
+		return nil, err
+	}
+
+	return parseDevicesForDisplay(format, stderr), nil
+}
+
+// parseDevicesForDisplay extracts device entries with human-readable names.
+func parseDevicesForDisplay(format, stderr string) []string {
+	switch format {
+	case "avfoundation":
+		return parseAVFoundationDevicesForDisplay(stderr)
+	case "dshow":
+		// dshow parsers already return device names.
+		return parseDShowDevices(stderr)
+	default:
+		return parseALSADevices(stderr)
+	}
 }
 
 // detectDefaultDevice auto-detects the default audio input device for the current OS.
@@ -524,6 +569,58 @@ func parseAVFoundationDevices(stderr string) []string {
 	}
 
 	// Combine: microphones first, then unknown, then virtual.
+	var result []string
+	result = append(result, microphones...)
+	result = append(result, unknown...)
+	result = append(result, virtual...)
+	return result
+}
+
+// parseAVFoundationDevicesForDisplay parses macOS avfoundation device listing
+// and returns human-readable entries: ":index  DeviceName".
+func parseAVFoundationDevicesForDisplay(stderr string) []string {
+	type deviceInfo struct {
+		index string
+		name  string
+	}
+	var allDevices []deviceInfo
+	inAudioSection := false
+	lines := strings.Split(stderr, "\n")
+
+	devicePattern := regexp.MustCompile(`\[(\d+)\]\s+(.+)$`)
+
+	for _, line := range lines {
+		if strings.Contains(line, "AVFoundation audio devices:") {
+			inAudioSection = true
+			continue
+		}
+		if strings.Contains(line, "AVFoundation video devices:") {
+			inAudioSection = false
+			continue
+		}
+		if inAudioSection {
+			if matches := devicePattern.FindStringSubmatch(line); matches != nil {
+				allDevices = append(allDevices, deviceInfo{
+					index: matches[1],
+					name:  matches[2],
+				})
+			}
+		}
+	}
+
+	// Sort devices: real microphones first, then unknown, then virtual devices.
+	var microphones, unknown, virtual []string
+	for _, d := range allDevices {
+		entry := ":" + d.index + "\t" + d.name
+		if isVirtualAudioDevice(d.name) {
+			virtual = append(virtual, entry)
+		} else if isMicrophoneDevice(d.name) {
+			microphones = append(microphones, entry)
+		} else {
+			unknown = append(unknown, entry)
+		}
+	}
+
 	var result []string
 	result = append(result, microphones...)
 	result = append(result, unknown...)

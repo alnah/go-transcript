@@ -55,6 +55,7 @@ type testMocks struct {
 	restructurer   *mockRestructurerFactory
 	chunker        *mockChunkerFactory
 	recorder       *mockRecorderFactory
+	deviceLister   *mockDeviceListerFactory
 }
 
 func newTestMocks() *testMocks {
@@ -65,6 +66,7 @@ func newTestMocks() *testMocks {
 		restructurer:   &mockRestructurerFactory{},
 		chunker:        &mockChunkerFactory{},
 		recorder:       &mockRecorderFactory{},
+		deviceLister:   &mockDeviceListerFactory{},
 	}
 }
 
@@ -109,6 +111,7 @@ func testEnv(opts ...testEnvOption) (*Env, *testMocks) {
 		RestructurerFactory: options.mocks.restructurer,
 		ChunkerFactory:      options.mocks.chunker,
 		RecorderFactory:     options.mocks.recorder,
+		DeviceListerFactory: options.mocks.deviceLister,
 	}
 
 	return env, options.mocks

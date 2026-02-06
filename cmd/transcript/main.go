@@ -67,6 +67,7 @@ func main() {
 	rootCmd.AddCommand(cli.LiveCmd(env))
 	rootCmd.AddCommand(cli.StructureCmd(env))
 	rootCmd.AddCommand(cli.ConfigCmd(env))
+	rootCmd.AddCommand(cli.DevicesCmd(env))
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)

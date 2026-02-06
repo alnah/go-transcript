@@ -225,7 +225,7 @@ func TestBuildRecordArgs(t *testing.T) {
 		"-f avfoundation",
 		"-i :0",
 		"-t 60",
-		"-c:a libvorbis",
+		"-c:a libopus",
 		"-ar 16000",
 		"-ac 1",
 		"/tmp/out.ogg",
@@ -249,7 +249,7 @@ func TestEncodingArgs(t *testing.T) {
 	argsStr := strings.Join(args, " ")
 
 	// Verify essential encoding parameters
-	required := []string{"-c:a", "libvorbis", "-ar", "16000", "-ac", "1"}
+	required := []string{"-c:a", "libopus", "-ar", "16000", "-ac", "1"}
 
 	for _, r := range required {
 		if !strings.Contains(argsStr, r) {
@@ -366,6 +366,38 @@ func TestParseAVFoundationDevices(t *testing.T) {
 	// BlackHole should be last (virtual device deprioritized)
 	if len(devices) > 0 && devices[len(devices)-1] != ":2" {
 		t.Errorf("ParseAVFoundationDevices() last device = %q, want :2 (BlackHole)", devices[len(devices)-1])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ParseAVFoundationDevicesForDisplay - macOS device parsing with names
+// ---------------------------------------------------------------------------
+
+func TestParseAVFoundationDevicesForDisplay(t *testing.T) {
+	t.Parallel()
+
+	stderr := `[AVFoundation indev @ 0x7f8] AVFoundation video devices:
+[AVFoundation indev @ 0x7f8] [0] FaceTime HD Camera
+[AVFoundation indev @ 0x7f8] [1] Capture screen 0
+[AVFoundation indev @ 0x7f8] AVFoundation audio devices:
+[AVFoundation indev @ 0x7f8] [0] AirBeamTV Audio
+[AVFoundation indev @ 0x7f8] [1] MacBook Pro Microphone
+[AVFoundation indev @ 0x7f8] [2] BlackHole 2ch`
+
+	devices := audio.ParseAVFoundationDevicesForDisplay(stderr)
+
+	if len(devices) != 3 {
+		t.Fatalf("ParseAVFoundationDevicesForDisplay() returned %d devices, want 3", len(devices))
+	}
+
+	// First device should be the microphone with name
+	if !strings.Contains(devices[0], ":1") || !strings.Contains(devices[0], "MacBook Pro Microphone") {
+		t.Errorf("first device = %q, want containing ':1' and 'MacBook Pro Microphone'", devices[0])
+	}
+
+	// Last device should be BlackHole with name
+	if !strings.Contains(devices[2], ":2") || !strings.Contains(devices[2], "BlackHole 2ch") {
+		t.Errorf("last device = %q, want containing ':2' and 'BlackHole 2ch'", devices[2])
 	}
 }
 

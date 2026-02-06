@@ -404,6 +404,43 @@ func (m *mockMapReduceRestructurer) RestructureCalls() []mapReduceRestructureCal
 }
 
 // ---------------------------------------------------------------------------
+// Mock DeviceListerFactory + DeviceLister
+// ---------------------------------------------------------------------------
+
+type mockDeviceListerFactory struct {
+	NewDeviceListerFunc func(ffmpegPath string) (audio.DeviceLister, error)
+
+	mu                   sync.Mutex
+	newDeviceListerCalls []string
+	mockDeviceLister     *mockDeviceLister
+}
+
+func (m *mockDeviceListerFactory) NewDeviceLister(ffmpegPath string) (audio.DeviceLister, error) {
+	m.mu.Lock()
+	m.newDeviceListerCalls = append(m.newDeviceListerCalls, ffmpegPath)
+	m.mu.Unlock()
+
+	if m.NewDeviceListerFunc != nil {
+		return m.NewDeviceListerFunc(ffmpegPath)
+	}
+	if m.mockDeviceLister != nil {
+		return m.mockDeviceLister, nil
+	}
+	return &mockDeviceLister{}, nil
+}
+
+type mockDeviceLister struct {
+	ListDevicesFunc func(ctx context.Context) ([]string, error)
+}
+
+func (m *mockDeviceLister) ListDevices(ctx context.Context) ([]string, error) {
+	if m.ListDevicesFunc != nil {
+		return m.ListDevicesFunc(ctx)
+	}
+	return nil, nil
+}
+
+// ---------------------------------------------------------------------------
 // Compile-time interface verification
 // ---------------------------------------------------------------------------
 
@@ -418,4 +455,6 @@ var (
 	_ audio.Chunker          = (*mockChunker)(nil)
 	_ RecorderFactory        = (*mockRecorderFactory)(nil)
 	_ audio.Recorder         = (*mockRecorder)(nil)
+	_ DeviceListerFactory    = (*mockDeviceListerFactory)(nil)
+	_ audio.DeviceLister     = (*mockDeviceLister)(nil)
 )

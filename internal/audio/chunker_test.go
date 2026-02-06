@@ -724,7 +724,7 @@ func TestChunkEncodingArgs(t *testing.T) {
 	args := audio.ChunkEncodingArgs()
 
 	// Verify essential encoding parameters are present
-	required := []string{"-c:a", "libvorbis", "-ar", "16000", "-ac", "1"}
+	required := []string{"-c:a", "libopus", "-ar", "16000", "-ac", "1"}
 	argsStr := strings.Join(args, " ")
 
 	for _, r := range required {

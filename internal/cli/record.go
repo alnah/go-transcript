@@ -40,7 +40,7 @@ func RecordCmd(env *Env) *cobra.Command {
 		Short: "Record audio from microphone or system audio",
 		Long: `Record audio from microphone, system audio (--system-record), or both mixed.
 
-The output format is OGG Vorbis optimized for voice (~50kbps, 16kHz mono).
+The output format is OGG Opus optimized for voice (~50kbps, 16kHz mono).
 Recording can be interrupted with Ctrl+C to stop early - the file will be properly finalized.`,
 		Example: `  transcript record -d 2h -o session.ogg           # Microphone only
   transcript record -d 30m -s                      # System audio only
@@ -95,10 +95,15 @@ func runRecord(ctx context.Context, env *Env, opts recordOptions) error {
 	// Resolve output path using config output-dir.
 	opts.output = config.ResolveOutputPath(opts.output, cfg.OutputDir, defaultRecordingFilename(env.Now))
 
+	// Add .ogg extension if output has no extension.
+	if filepath.Ext(opts.output) == "" {
+		opts.output += ".ogg"
+	}
+
 	// Warn if output extension is not .ogg.
 	ext := strings.ToLower(filepath.Ext(opts.output))
 	if ext != "" && ext != ".ogg" {
-		fmt.Fprintf(env.Stderr, "Warning: output will be OGG Vorbis format regardless of %s extension\n", ext)
+		fmt.Fprintf(env.Stderr, "Warning: output will be OGG Opus format regardless of %s extension\n", ext)
 	}
 
 	// Check output file doesn't already exist.

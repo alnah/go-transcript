@@ -68,6 +68,9 @@ type StructureOptions = structureOptions
 // RestructureContent exports restructureContent for testing.
 var RestructureContent = restructureContent
 
+// RunListDevices exports runListDevices for testing.
+var RunListDevices = runListDevices
+
 // RunTranscribe exports runTranscribe for testing.
 var RunTranscribe = runTranscribe
 

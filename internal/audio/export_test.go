@@ -106,6 +106,9 @@ var IsMicrophoneDevice = isMicrophoneDevice
 // ParseAVFoundationDevices exports parseAVFoundationDevices for testing.
 var ParseAVFoundationDevices = parseAVFoundationDevices
 
+// ParseAVFoundationDevicesForDisplay exports parseAVFoundationDevicesForDisplay for testing.
+var ParseAVFoundationDevicesForDisplay = parseAVFoundationDevicesForDisplay
+
 // ParseDShowDevices exports parseDShowDevices for testing.
 var ParseDShowDevices = parseDShowDevices
 
