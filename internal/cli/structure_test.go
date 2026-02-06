@@ -32,14 +32,14 @@ func TestDeriveStructuredOutputPath(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"simple_md", "meeting.md", "meeting_structured.md"},
-		{"removes_raw_suffix", "meeting_raw.md", "meeting_structured.md"},
-		{"preserves_extension", "notes.txt", "notes_structured.txt"},
-		{"no_extension", "transcript", "transcript_structured"},
-		{"preserves_path", "/path/to/meeting.md", "/path/to/meeting_structured.md"},
-		{"path_with_raw", "/path/to/notes_raw.md", "/path/to/notes_structured.md"},
-		{"double_extension", "file.backup.md", "file.backup_structured.md"},
-		{"empty_string", "", "_structured"},
+		{"simple md file", "meeting.md", "meeting_structured.md"},
+		{"removes raw suffix", "meeting_raw.md", "meeting_structured.md"},
+		{"preserves extension", "notes.txt", "notes_structured.txt"},
+		{"no extension", "transcript", "transcript_structured"},
+		{"preserves path", "/path/to/meeting.md", "/path/to/meeting_structured.md"},
+		{"path with raw suffix", "/path/to/notes_raw.md", "/path/to/notes_structured.md"},
+		{"double extension", "file.backup.md", "file.backup_structured.md"},
+		{"empty string", "", "_structured"},
 	}
 
 	for _, tt := range tests {
@@ -125,11 +125,10 @@ func TestParseStructureOptions(t *testing.T) {
 
 			_, err := ParseStructureOptions(tt.inputPath, tt.output, tt.tmpl, tt.outputLang, tt.provider)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseStructureOptions() error = %v, wantErr %v", err, tt.wantErr)
-				return
+				t.Fatalf("ParseStructureOptions(%q, %q, %q, %q, %q) error = %v, wantErr %v", tt.inputPath, tt.output, tt.tmpl, tt.outputLang, tt.provider, err, tt.wantErr)
 			}
 			if tt.wantErr && tt.errContain != "" && !strings.Contains(err.Error(), tt.errContain) {
-				t.Errorf("ParseStructureOptions() error = %v, want error containing %q", err, tt.errContain)
+				t.Errorf("ParseStructureOptions(%q, %q, %q, %q, %q) error = %q, want containing %q", tt.inputPath, tt.output, tt.tmpl, tt.outputLang, tt.provider, err.Error(), tt.errContain)
 			}
 		})
 	}
@@ -149,7 +148,7 @@ func TestStructureCmd_RequiresFile(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error when file not provided")
+		t.Fatal("StructureCmd.Execute() with no args: expected error, got nil")
 	}
 }
 
@@ -165,10 +164,10 @@ func TestStructureCmd_RequiresTemplate(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error when template not provided")
+		t.Fatal("StructureCmd.Execute() without template flag: expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected template error, got %v", err)
+		t.Errorf("StructureCmd.Execute() error = %q, want containing %q", err.Error(), "template")
 	}
 }
 
@@ -255,10 +254,10 @@ func TestRunStructure_FileNotFound(t *testing.T) {
 	opts := mustParseStructureOptions(t, "/nonexistent/file.md", "", "brainstorm", "", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for nonexistent file")
+		t.Fatal("RunStructure() with nonexistent file: expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected 'not found' error, got %v", err)
+		t.Errorf("RunStructure() error = %q, want containing %q", err.Error(), "not found")
 	}
 }
 
@@ -273,10 +272,10 @@ func TestRunStructure_EmptyFile(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, "", "brainstorm", "", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for empty file")
+		t.Fatal("RunStructure() with empty file: expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "empty") {
-		t.Errorf("expected 'empty' error, got %v", err)
+		t.Errorf("RunStructure() error = %q, want containing %q", err.Error(), "empty")
 	}
 }
 
@@ -291,10 +290,10 @@ func TestRunStructure_WhitespaceOnlyFile(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, "", "brainstorm", "", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for whitespace-only file")
+		t.Fatal("RunStructure() with whitespace-only file: expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "empty") {
-		t.Errorf("expected 'empty' error, got %v", err)
+		t.Errorf("RunStructure() error = %q, want containing %q", err.Error(), "empty")
 	}
 }
 
@@ -316,10 +315,10 @@ func TestRunStructure_OutputExists(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for existing output file")
+		t.Fatal("RunStructure() with existing output file: expected error, got nil")
 	}
 	if !errors.Is(err, ErrOutputExists) {
-		t.Errorf("expected ErrOutputExists, got %v", err)
+		t.Errorf("RunStructure() error = %v, want ErrOutputExists", err)
 	}
 }
 
@@ -346,10 +345,10 @@ func TestRunStructure_MissingDeepSeekKey(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for missing DeepSeek API key")
+		t.Fatal("RunStructure() with missing DeepSeek API key: expected error, got nil")
 	}
 	if !errors.Is(err, ErrDeepSeekKeyMissing) {
-		t.Errorf("expected ErrDeepSeekKeyMissing, got %v", err)
+		t.Errorf("RunStructure() error = %v, want ErrDeepSeekKeyMissing", err)
 	}
 }
 
@@ -376,10 +375,10 @@ func TestRunStructure_MissingOpenAIKey(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "openai")
 	err := RunStructure(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for missing OpenAI API key")
+		t.Fatal("RunStructure() with missing OpenAI API key: expected error, got nil")
 	}
 	if !errors.Is(err, ErrAPIKeyMissing) {
-		t.Errorf("expected ErrAPIKeyMissing, got %v", err)
+		t.Errorf("RunStructure() error = %v, want ErrAPIKeyMissing", err)
 	}
 }
 
@@ -411,28 +410,28 @@ func TestRunStructure_Success(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunStructure() unexpected error: %v", err)
 	}
 
 	// Verify output file was created
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
-		t.Fatalf("failed to read output file: %v", err)
+		t.Fatalf("os.ReadFile(%q) unexpected error: %v", outputPath, err)
 	}
 	if !strings.Contains(string(content), "Restructured Output") {
-		t.Errorf("expected restructured content, got %q", string(content))
+		t.Errorf("output file content = %q, want containing %q", string(content), "Restructured Output")
 	}
 
 	// Verify stderr contains progress messages
 	output := stderr.String()
 	if !strings.Contains(output, "Reading") {
-		t.Errorf("expected 'Reading' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Reading")
 	}
 	if !strings.Contains(output, "Restructuring") {
-		t.Errorf("expected 'Restructuring' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Restructuring")
 	}
 	if !strings.Contains(output, "Done") {
-		t.Errorf("expected 'Done' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Done")
 	}
 }
 
@@ -469,7 +468,7 @@ func TestRunStructure_SuccessWithOpenAI(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "meeting", "", "openai")
 	err := RunStructure(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error with OpenAI provider, got %v", err)
+		t.Fatalf("RunStructure() with OpenAI provider unexpected error: %v", err)
 	}
 
 	// Verify OpenAI provider was used
@@ -511,11 +510,11 @@ func TestRunStructure_WithOutputLang(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "meeting", "fr", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunStructure() unexpected error: %v", err)
 	}
 
 	if capturedLang.String() != "fr" {
-		t.Errorf("expected output lang 'fr', got %q", capturedLang.String())
+		t.Errorf("captured language = %q, want %q", capturedLang.String(), "fr")
 	}
 }
 
@@ -547,10 +546,10 @@ func TestRunStructure_RestructureError(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error when restructuring fails")
+		t.Fatal("RunStructure() with failing restructurer: expected error, got nil")
 	}
 	if !errors.Is(err, restructureErr) {
-		t.Errorf("expected restructure error, got %v", err)
+		t.Errorf("RunStructure() error = %v, want %v", err, restructureErr)
 	}
 }
 
@@ -592,13 +591,13 @@ func TestRunStructure_DefaultOutputPath(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, "", "brainstorm", "", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunStructure() unexpected error: %v", err)
 	}
 
 	// Verify output was created with expected name (meeting_structured.md, not meeting_raw_structured.md)
 	expectedPath := filepath.Join(outputDir, "meeting_structured.md")
 	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
-		t.Errorf("expected output file at %s", expectedPath)
+		t.Errorf("output file not found at %s", expectedPath)
 	}
 }
 
@@ -630,13 +629,13 @@ func TestRunStructure_ProgressCallback(t *testing.T) {
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
 	err := RunStructure(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunStructure() unexpected error: %v", err)
 	}
 
 	// Verify restructuring message includes provider
 	output := stderr.String()
 	if !strings.Contains(output, "deepseek") {
-		t.Errorf("expected provider 'deepseek' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "deepseek")
 	}
 }
 
@@ -656,13 +655,13 @@ func TestRunStructure_NonMdExtensionWarning(t *testing.T) {
 	outputPath := filepath.Join(outputDir, "output.txt")
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
 	if err := RunStructure(cmd, env, opts); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunStructure() unexpected error: %v", err)
 	}
 
 	// Verify warning was emitted
 	output := getStderr()
 	if !strings.Contains(output, "Warning") || !strings.Contains(output, ".txt") {
-		t.Errorf("expected warning about .txt extension, got: %q", output)
+		t.Errorf("stderr output = %q, want containing both %q and %q", output, "Warning", ".txt")
 	}
 }
 
@@ -678,12 +677,13 @@ func TestRunStructure_MdExtensionNoWarning(t *testing.T) {
 	outputPath := filepath.Join(outputDir, "output.md")
 	opts := mustParseStructureOptions(t, inputPath, outputPath, "brainstorm", "", "deepseek")
 	if err := RunStructure(cmd, env, opts); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunStructure() unexpected error: %v", err)
 	}
 
 	// Verify NO warning about extension
-	if strings.Contains(getStderr(), "regardless") {
-		t.Errorf("unexpected extension warning for .md file: %q", getStderr())
+	output := getStderr()
+	if strings.Contains(output, "regardless") {
+		t.Errorf("stderr output = %q, should not contain extension warning for .md file", output)
 	}
 }
 
@@ -694,7 +694,7 @@ func TestRunStructure_MdExtensionNoWarning(t *testing.T) {
 func TestRunStructure_ValidationOrder(t *testing.T) {
 	t.Parallel()
 
-	t.Run("file_not_found_first", func(t *testing.T) {
+	t.Run("file not found first", func(t *testing.T) {
 		t.Parallel()
 
 		env, _ := testEnv()
@@ -703,10 +703,10 @@ func TestRunStructure_ValidationOrder(t *testing.T) {
 		opts := mustParseStructureOptions(t, "/nonexistent/path.md", "", "brainstorm", "", "deepseek")
 		err := RunStructure(cmd, env, opts)
 		if err == nil {
-			t.Fatal("expected error")
+			t.Fatal("RunStructure() with nonexistent file: expected error, got nil")
 		}
 		if !strings.Contains(err.Error(), "not found") {
-			t.Errorf("expected 'not found' error, got %v", err)
+			t.Errorf("RunStructure() error = %q, want containing %q", err.Error(), "not found")
 		}
 	})
 }

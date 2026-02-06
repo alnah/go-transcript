@@ -165,11 +165,11 @@ func TestParse_ErrorWrapsErrInvalid(t *testing.T) {
 
 	_, err := lang.Parse("xyz")
 	if err == nil {
-		t.Fatal("Parse(\"xyz\") should return an error")
+		t.Fatalf("Parse(%q) unexpected success, want error", "xyz")
 	}
 
 	if !errors.Is(err, lang.ErrInvalid) {
-		t.Errorf("Parse(\"xyz\") error should wrap ErrInvalid, got: %v", err)
+		t.Errorf("Parse(%q) error should wrap ErrInvalid, got: %v", "xyz", err)
 	}
 }
 
@@ -178,12 +178,12 @@ func TestParse_ErrorContainsOriginalCode(t *testing.T) {
 
 	_, err := lang.Parse("XYZ")
 	if err == nil {
-		t.Fatal("Parse(\"XYZ\") should return an error")
+		t.Fatalf("Parse(%q) unexpected success, want error", "XYZ")
 	}
 
 	errMsg := err.Error()
 	if !contains(errMsg, "XYZ") {
-		t.Errorf("error message should contain original code \"XYZ\", got: %q", errMsg)
+		t.Errorf("Parse(%q) error = %q, want containing %q", "XYZ", errMsg, "XYZ")
 	}
 }
 
@@ -261,7 +261,7 @@ func TestLanguage_String(t *testing.T) {
 
 			l := lang.MustParse(tt.input)
 			if got := l.String(); got != tt.want {
-				t.Errorf("Language.String() = %q, want %q", got, tt.want)
+				t.Errorf("Language.String() for input %q = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -290,7 +290,7 @@ func TestLanguage_IsZero(t *testing.T) {
 
 			l := lang.MustParse(tt.input)
 			if got := l.IsZero(); got != tt.want {
-				t.Errorf("Language.IsZero() = %v, want %v", got, tt.want)
+				t.Errorf("Language.IsZero() for input %q = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -326,7 +326,7 @@ func TestLanguage_IsEnglish(t *testing.T) {
 
 			l := lang.MustParse(tt.input)
 			if got := l.IsEnglish(); got != tt.want {
-				t.Errorf("Language.IsEnglish() = %v, want %v", got, tt.want)
+				t.Errorf("Language.IsEnglish() for input %q = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -362,7 +362,7 @@ func TestLanguage_IsFrench(t *testing.T) {
 
 			l := lang.MustParse(tt.input)
 			if got := l.IsFrench(); got != tt.want {
-				t.Errorf("Language.IsFrench() = %v, want %v", got, tt.want)
+				t.Errorf("Language.IsFrench() for input %q = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -401,7 +401,7 @@ func TestLanguage_BaseCode(t *testing.T) {
 
 			l := lang.MustParse(tt.input)
 			if got := l.BaseCode(); got != tt.want {
-				t.Errorf("Language.BaseCode() = %q, want %q", got, tt.want)
+				t.Errorf("Language.BaseCode() for input %q = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -451,7 +451,7 @@ func TestLanguage_DisplayName(t *testing.T) {
 
 			l := lang.MustParse(tt.input)
 			if got := l.DisplayName(); got != tt.want {
-				t.Errorf("Language.DisplayName() = %q, want %q", got, tt.want)
+				t.Errorf("Language.DisplayName() for input %q = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

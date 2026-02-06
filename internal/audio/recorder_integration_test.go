@@ -159,7 +159,7 @@ func TestNewFFmpegLoopbackRecorder_AcceptsOptions(t *testing.T) {
 	_ = rec.Record(ctx, 1*time.Second, output)
 
 	if !mockCalled {
-		t.Error("custom ffmpegRunner option was not applied - mock was not called")
+		t.Error("NewFFmpegLoopbackRecorder() with custom runner: mock.RunGraceful called = false, want true")
 	}
 }
 
@@ -199,7 +199,7 @@ func TestNewFFmpegMixRecorder_AcceptsOptions(t *testing.T) {
 	_ = rec.Record(ctx, 1*time.Second, output)
 
 	if !mockCalled {
-		t.Error("custom ffmpegRunner option was not applied - mock was not called")
+		t.Error("NewFFmpegMixRecorder() with custom runner: mock.RunGraceful called = false, want true")
 	}
 }
 

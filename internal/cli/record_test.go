@@ -27,7 +27,7 @@ func TestDefaultRecordingFilename(t *testing.T) {
 	filename := DefaultRecordingFilename(now)
 
 	if filename != "recording_20260125_143052.ogg" {
-		t.Errorf("expected recording_20260125_143052.ogg, got %s", filename)
+		t.Errorf("DefaultRecordingFilename() = %q, want %q", filename, "recording_20260125_143052.ogg")
 	}
 }
 
@@ -74,25 +74,25 @@ func TestRunRecord_Success(t *testing.T) {
 
 	err := RunRecord(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunRecord() unexpected error: %v", err)
 	}
 
 	// Verify recorder was called
 	calls := recorder.RecordCalls()
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 record call, got %d", len(calls))
+		t.Fatalf("recorder.RecordCalls() = %d calls, want 1", len(calls))
 	}
 	if calls[0].Duration != 30*time.Minute {
-		t.Errorf("expected duration 30m, got %v", calls[0].Duration)
+		t.Errorf("recorder.Record() duration = %v, want %v", calls[0].Duration, 30*time.Minute)
 	}
 	if calls[0].Output != outputPath {
-		t.Errorf("expected output %s, got %s", outputPath, calls[0].Output)
+		t.Errorf("recorder.Record() output = %q, want %q", calls[0].Output, outputPath)
 	}
 
 	// Verify output contains success message
 	output := stderr.String()
 	if !strings.Contains(output, "Recording complete") {
-		t.Errorf("expected 'Recording complete' in output, got %q", output)
+		t.Errorf("RunRecord() stderr = %q, want containing %q", output, "Recording complete")
 	}
 }
 
@@ -138,21 +138,21 @@ func TestRunRecord_DefaultFilename(t *testing.T) {
 
 	err := RunRecord(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunRecord() unexpected error: %v", err)
 	}
 
 	// Verify the file was created with expected name
 	calls := recorder.RecordCalls()
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 record call, got %d", len(calls))
+		t.Fatalf("recorder.RecordCalls() = %d calls, want 1", len(calls))
 	}
 
 	expectedFilename := "recording_20260125_143052.ogg"
 	if !strings.HasSuffix(calls[0].Output, expectedFilename) {
-		t.Errorf("expected output to end with %s, got %s", expectedFilename, calls[0].Output)
+		t.Errorf("recorder.Record() output = %q, want ending with %q", calls[0].Output, expectedFilename)
 	}
 	if !strings.HasPrefix(calls[0].Output, outputDir) {
-		t.Errorf("expected output to be in %s, got %s", outputDir, calls[0].Output)
+		t.Errorf("recorder.Record() output = %q, want in directory %q", calls[0].Output, outputDir)
 	}
 }
 
@@ -182,10 +182,10 @@ func TestRunRecord_OutputExists(t *testing.T) {
 
 	err := RunRecord(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error for existing output file")
+		t.Fatal("RunRecord() error = nil, want ErrOutputExists")
 	}
 	if !errors.Is(err, ErrOutputExists) {
-		t.Errorf("expected ErrOutputExists, got %v", err)
+		t.Errorf("RunRecord() error = %v, want ErrOutputExists", err)
 	}
 }
 
@@ -224,12 +224,12 @@ func TestRunRecord_ExtensionWarning(t *testing.T) {
 
 	err := RunRecord(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunRecord() unexpected error: %v", err)
 	}
 
 	output := stderr.String()
 	if !strings.Contains(output, "Warning") || !strings.Contains(output, ".mp3") {
-		t.Errorf("expected warning about .mp3 extension, got %q", output)
+		t.Errorf("RunRecord() stderr = %q, want containing %q and %q", output, "Warning", ".mp3")
 	}
 }
 
@@ -260,10 +260,10 @@ func TestRunRecord_FFmpegResolveFails(t *testing.T) {
 
 	err := RunRecord(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when ffmpeg not found")
+		t.Fatal("RunRecord() error = nil, want ffmpeg error")
 	}
 	if !errors.Is(err, ffmpegErr) {
-		t.Errorf("expected ffmpeg error, got %v", err)
+		t.Errorf("RunRecord() error = %v, want %v", err, ffmpegErr)
 	}
 }
 
@@ -304,11 +304,11 @@ func TestRunRecord_LoopbackRecorder(t *testing.T) {
 
 	err := RunRecord(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunRecord() unexpected error: %v", err)
 	}
 
 	if !loopbackCalled {
-		t.Error("expected NewLoopbackRecorder to be called")
+		t.Error("NewLoopbackRecorder called = false, want true")
 	}
 }
 
@@ -352,14 +352,14 @@ func TestRunRecord_MixRecorder(t *testing.T) {
 
 	err := RunRecord(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunRecord() unexpected error: %v", err)
 	}
 
 	if !mixCalled {
-		t.Error("expected NewMixRecorder to be called")
+		t.Error("NewMixRecorder called = false, want true")
 	}
 	if capturedDevice != "custom-mic" {
-		t.Errorf("expected device custom-mic, got %s", capturedDevice)
+		t.Errorf("NewMixRecorder() device = %q, want %q", capturedDevice, "custom-mic")
 	}
 }
 
@@ -398,10 +398,10 @@ func TestRunRecord_RecordError(t *testing.T) {
 
 	err := RunRecord(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when recording fails")
+		t.Fatal("RunRecord() error = nil, want recording error")
 	}
 	if !errors.Is(err, recordErr) {
-		t.Errorf("expected record error, got %v", err)
+		t.Errorf("RunRecord() error = %v, want %v", err, recordErr)
 	}
 }
 
@@ -440,10 +440,10 @@ func TestRunRecord_RecordingNotCreated(t *testing.T) {
 
 	err := RunRecord(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when output file not created")
+		t.Fatal("RunRecord() error = nil, want error when output file not created")
 	}
 	if !strings.Contains(err.Error(), "recording failed") {
-		t.Errorf("expected 'recording failed' error, got %v", err)
+		t.Errorf("RunRecord() error = %q, want containing %q", err.Error(), "recording failed")
 	}
 }
 
@@ -490,12 +490,12 @@ func TestRunRecord_ContextCanceled(t *testing.T) {
 	err := RunRecord(ctx, env, opts)
 	// Should still succeed because file was created
 	if err != nil {
-		t.Fatalf("expected no error on interrupt with valid file, got %v", err)
+		t.Fatalf("RunRecord() unexpected error on interrupt with valid file: %v", err)
 	}
 
 	output := stderr.String()
 	if !strings.Contains(output, "Interrupted") {
-		t.Errorf("expected 'Interrupted' message, got %q", output)
+		t.Errorf("RunRecord() stderr = %q, want containing %q", output, "Interrupted")
 	}
 }
 
@@ -541,12 +541,12 @@ func TestRunRecord_ConfigLoadWarning(t *testing.T) {
 	// Should succeed despite config error (just warns)
 	err := RunRecord(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunRecord() unexpected error: %v", err)
 	}
 
 	output := stderr.String()
 	if !strings.Contains(output, "Warning") || !strings.Contains(output, "config") {
-		t.Errorf("expected warning about config, got %q", output)
+		t.Errorf("RunRecord() stderr = %q, want containing %q and %q", output, "Warning", "config")
 	}
 }
 
@@ -565,10 +565,10 @@ func TestRecordCmd_RequiresDuration(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error when duration not provided")
+		t.Fatal("cmd.Execute() error = nil, want error when duration not provided")
 	}
 	if !strings.Contains(err.Error(), "duration") {
-		t.Errorf("expected error about duration, got %v", err)
+		t.Errorf("cmd.Execute() error = %q, want containing %q", err.Error(), "duration")
 	}
 }
 
@@ -582,10 +582,10 @@ func TestRecordCmd_InvalidDuration(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error for invalid duration")
+		t.Fatal("cmd.Execute() error = nil, want ErrInvalidDuration")
 	}
 	if !errors.Is(err, ErrInvalidDuration) {
-		t.Errorf("expected ErrInvalidDuration, got %v", err)
+		t.Errorf("cmd.Execute() error = %v, want ErrInvalidDuration", err)
 	}
 }
 
@@ -599,10 +599,10 @@ func TestRecordCmd_NegativeDuration(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error for negative duration")
+		t.Fatal("cmd.Execute() error = nil, want ErrInvalidDuration")
 	}
 	if !errors.Is(err, ErrInvalidDuration) {
-		t.Errorf("expected ErrInvalidDuration, got %v", err)
+		t.Errorf("cmd.Execute() error = %v, want ErrInvalidDuration", err)
 	}
 }
 
@@ -616,10 +616,10 @@ func TestRecordCmd_ZeroDuration(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error for zero duration")
+		t.Fatal("cmd.Execute() error = nil, want ErrInvalidDuration")
 	}
 	if !errors.Is(err, ErrInvalidDuration) {
-		t.Errorf("expected ErrInvalidDuration, got %v", err)
+		t.Errorf("cmd.Execute() error = %v, want ErrInvalidDuration", err)
 	}
 }
 
@@ -633,10 +633,10 @@ func TestRecordCmd_MutuallyExclusiveFlags(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error for mutually exclusive flags")
+		t.Fatal("cmd.Execute() error = nil, want mutually exclusive flags error")
 	}
 	// Cobra handles this with specific error message
 	if !strings.Contains(err.Error(), "cannot be used") && !strings.Contains(err.Error(), "none of the others") {
-		t.Errorf("expected mutual exclusion error, got %v", err)
+		t.Errorf("cmd.Execute() error = %q, want containing %q or %q", err.Error(), "cannot be used", "none of the others")
 	}
 }

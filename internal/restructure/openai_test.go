@@ -105,20 +105,20 @@ func TestClassifyRestructureError(t *testing.T) {
 
 			if tt.wantNil {
 				if got != nil {
-					t.Errorf("expected nil, got %v", got)
+					t.Errorf("ClassifyRestructureError(%v) = %v, want nil", tt.err, got)
 				}
 				return
 			}
 
 			if tt.wantErr == nil {
 				if got == nil {
-					t.Error("expected non-nil error")
+					t.Errorf("ClassifyRestructureError(%v) = nil, want non-nil error", tt.err)
 				}
 				return
 			}
 
 			if !errors.Is(got, tt.wantErr) {
-				t.Errorf("expected error wrapping %v, got %v", tt.wantErr, got)
+				t.Errorf("ClassifyRestructureError(%v) = %v, want error wrapping %v", tt.err, got, tt.wantErr)
 			}
 		})
 	}
@@ -226,15 +226,16 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		result, err := r.Restructure(context.Background(), "Raw transcript.", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
-		if result != "# Restructured Content\n\nThis is the result." {
-			t.Errorf("unexpected result: %s", result)
+		want := "# Restructured Content\n\nThis is the result."
+		if result != want {
+			t.Errorf("Restructure() = %q, want %q", result, want)
 		}
 
-		if mock.CallCount() != 1 {
-			t.Errorf("expected 1 call, got %d", mock.CallCount())
+		if got, want := mock.CallCount(), 1; got != want {
+			t.Errorf("CallCount() = %d, want %d", got, want)
 		}
 	})
 
@@ -256,15 +257,15 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), longTranscript, template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
-			t.Fatal("expected error for long transcript")
+			t.Fatal("Restructure() with long transcript: got nil error, want ErrTranscriptTooLong")
 		}
 
 		if !errors.Is(err, restructure.ErrTranscriptTooLong) {
-			t.Errorf("expected ErrTranscriptTooLong, got %v", err)
+			t.Errorf("Restructure() error = %v, want ErrTranscriptTooLong", err)
 		}
 
-		if mock.CallCount() != 0 {
-			t.Error("should not call API if transcript too long")
+		if got := mock.CallCount(); got != 0 {
+			t.Errorf("CallCount() = %d, want 0 (should not call API if transcript too long)", got)
 		}
 	})
 
@@ -282,12 +283,12 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("fr"))
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		prompt := mock.SystemPrompt()
 		if !strings.Contains(prompt, "Respond in French") {
-			t.Errorf("expected language instruction, got: %s", prompt)
+			t.Errorf("SystemPrompt() = %q, want containing %q", prompt, "Respond in French")
 		}
 	})
 
@@ -305,12 +306,12 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("en"))
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		prompt := mock.SystemPrompt()
 		if strings.Contains(prompt, "Respond in") {
-			t.Errorf("should not add language instruction for English, got: %s", prompt)
+			t.Errorf("SystemPrompt() = %q, should not contain language instruction for English", prompt)
 		}
 	})
 
@@ -328,12 +329,12 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("en-US"))
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		prompt := mock.SystemPrompt()
 		if strings.Contains(prompt, "Respond in") {
-			t.Errorf("should not add language instruction for en-US, got: %s", prompt)
+			t.Errorf("SystemPrompt() = %q, should not contain language instruction for en-US", prompt)
 		}
 	})
 
@@ -351,12 +352,12 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		prompt := mock.SystemPrompt()
 		if strings.Contains(prompt, "Respond in") {
-			t.Errorf("should not add language instruction for empty lang, got: %s", prompt)
+			t.Errorf("SystemPrompt() = %q, should not contain language instruction for empty lang", prompt)
 		}
 	})
 
@@ -376,11 +377,11 @@ func TestOpenAIRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
-			t.Fatal("expected error for empty choices")
+			t.Fatal("Restructure() with empty choices: got nil error, want non-nil")
 		}
 
 		if !strings.Contains(err.Error(), "no response") {
-			t.Errorf("expected 'no response' error, got: %v", err)
+			t.Errorf("Restructure() error = %q, want containing %q", err.Error(), "no response")
 		}
 	})
 }
@@ -412,15 +413,16 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		result, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
-		if result != "Success after retries" {
-			t.Errorf("unexpected result: %s", result)
+		want := "Success after retries"
+		if result != want {
+			t.Errorf("Restructure() = %q, want %q", result, want)
 		}
 
-		if mock.CallCount() != 3 {
-			t.Errorf("expected 3 calls, got %d", mock.CallCount())
+		if got, want := mock.CallCount(), 3; got != want {
+			t.Errorf("CallCount() = %d, want %d", got, want)
 		}
 	})
 
@@ -439,15 +441,15 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
-			t.Fatal("expected error")
+			t.Fatal("Restructure() with auth error: got nil error, want ErrAuthFailed")
 		}
 
 		if !errors.Is(err, transcribe.ErrAuthFailed) {
-			t.Errorf("expected ErrAuthFailed, got: %v", err)
+			t.Errorf("Restructure() error = %v, want ErrAuthFailed", err)
 		}
 
-		if mock.CallCount() != 1 {
-			t.Errorf("expected 1 call (no retry), got %d", mock.CallCount())
+		if got, want := mock.CallCount(), 1; got != want {
+			t.Errorf("CallCount() = %d, want %d (no retry)", got, want)
 		}
 	})
 
@@ -466,15 +468,15 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
-			t.Fatal("expected error")
+			t.Fatal("Restructure() with context length error: got nil error, want ErrTranscriptTooLong")
 		}
 
 		if !errors.Is(err, restructure.ErrTranscriptTooLong) {
-			t.Errorf("expected ErrTranscriptTooLong, got: %v", err)
+			t.Errorf("Restructure() error = %v, want ErrTranscriptTooLong", err)
 		}
 
-		if mock.CallCount() != 1 {
-			t.Errorf("expected 1 call (no retry), got %d", mock.CallCount())
+		if got, want := mock.CallCount(), 1; got != want {
+			t.Errorf("CallCount() = %d, want %d (no retry)", got, want)
 		}
 	})
 
@@ -493,15 +495,15 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
-			t.Fatal("expected error")
+			t.Fatal("Restructure() after max retries: got nil error, want non-nil")
 		}
 
 		if !strings.Contains(err.Error(), "max retries") {
-			t.Errorf("expected 'max retries' in error, got: %v", err)
+			t.Errorf("Restructure() error = %q, want containing %q", err.Error(), "max retries")
 		}
 
-		if mock.CallCount() != 3 {
-			t.Errorf("expected 3 calls, got %d", mock.CallCount())
+		if got, want := mock.CallCount(), 3; got != want {
+			t.Errorf("CallCount() = %d, want %d", got, want)
 		}
 	})
 
@@ -524,15 +526,16 @@ func TestOpenAIRetryBehavior(t *testing.T) {
 
 		result, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
-		if result != "Success" {
-			t.Errorf("unexpected result: %s", result)
+		want := "Success"
+		if result != want {
+			t.Errorf("Restructure() = %q, want %q", result, want)
 		}
 
-		if mock.CallCount() != 2 {
-			t.Errorf("expected 2 calls, got %d", mock.CallCount())
+		if got, want := mock.CallCount(), 2; got != want {
+			t.Errorf("CallCount() = %d, want %d", got, want)
 		}
 	})
 }

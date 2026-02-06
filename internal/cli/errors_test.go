@@ -10,7 +10,7 @@ import (
 // Tests for sentinel errors
 // ---------------------------------------------------------------------------
 
-func TestSentinelErrors_AreDistinct(t *testing.T) {
+func TestSentinelErrorsAreDistinct(t *testing.T) {
 	t.Parallel()
 
 	sentinels := []error{
@@ -31,7 +31,7 @@ func TestSentinelErrors_AreDistinct(t *testing.T) {
 	}
 }
 
-func TestSentinelErrors_CanBeWrapped(t *testing.T) {
+func TestSentinelErrorsCanBeWrapped(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -65,7 +65,7 @@ func TestSentinelErrors_CanBeWrapped(t *testing.T) {
 	}
 }
 
-func TestSentinelErrors_HaveMeaningfulMessages(t *testing.T) {
+func TestSentinelErrorsHaveMeaningfulMessages(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -85,18 +85,18 @@ func TestSentinelErrors_HaveMeaningfulMessages(t *testing.T) {
 
 			msg := tt.sentinel.Error()
 			if msg == "" {
-				t.Error("error message should not be empty")
+				t.Errorf("%v.Error() = %q, want non-empty", tt.sentinel, msg)
 			}
 			// Note: We don't strictly check contains to avoid coupling tests
 			// to exact wording, but the error should be descriptive
 			if len(msg) < 10 {
-				t.Errorf("error message should be descriptive, got: %q", msg)
+				t.Errorf("%v.Error() = %q, want length >= 10", tt.sentinel, msg)
 			}
 		})
 	}
 }
 
-func TestSentinelErrors_NotNil(t *testing.T) {
+func TestSentinelErrorsNotNil(t *testing.T) {
 	t.Parallel()
 
 	sentinels := []struct {
@@ -115,7 +115,7 @@ func TestSentinelErrors_NotNil(t *testing.T) {
 			t.Parallel()
 
 			if tt.err == nil {
-				t.Errorf("%s should not be nil", tt.name)
+				t.Errorf("%s = nil, want non-nil sentinel error", tt.name)
 			}
 		})
 	}

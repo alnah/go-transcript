@@ -39,7 +39,7 @@ func TestGet_ValidTemplates(t *testing.T) {
 			prompt, err := template.Get(tt.templateName)
 
 			if err != nil {
-				t.Errorf("Get(%q) returned error: %v", tt.templateName, err)
+				t.Fatalf("Get(%q) unexpected error: %v", tt.templateName, err)
 			}
 			if prompt == "" {
 				t.Errorf("Get(%q) returned empty prompt", tt.templateName)
@@ -150,7 +150,7 @@ func TestConsistency_NamesAndGetAreCoherent(t *testing.T) {
 			prompt, err := template.Get(name)
 
 			if err != nil {
-				t.Errorf("Get(%q) failed for name returned by Names(): %v", name, err)
+				t.Fatalf("Get(%q) unexpected error: %v", name, err)
 			}
 			if prompt == "" {
 				t.Errorf("Get(%q) returned empty prompt for name returned by Names()", name)

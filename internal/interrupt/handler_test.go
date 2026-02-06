@@ -81,23 +81,23 @@ func TestNewHandler(t *testing.T) {
 
 	// Handler and context should be non-nil
 	if h == nil {
-		t.Fatal("NewHandler returned nil handler")
+		t.Fatalf("NewHandler() handler = nil, want non-nil")
 	}
 	if handlerCtx == nil {
-		t.Fatal("NewHandler returned nil context")
+		t.Fatalf("NewHandler() context = nil, want non-nil")
 	}
 
 	// Context should not be canceled yet
 	select {
 	case <-handlerCtx.Done():
-		t.Fatal("context should not be canceled before any signal")
+		t.Fatalf("NewHandler() context canceled before signal, want active")
 	default:
 		// Expected
 	}
 
 	// WasInterrupted should be false
-	if h.WasInterrupted() {
-		t.Error("WasInterrupted should be false before any signal")
+	if got := h.WasInterrupted(); got {
+		t.Errorf("NewHandler() WasInterrupted() = %v, want false", got)
 	}
 
 	// Stop should not panic
@@ -128,12 +128,12 @@ func TestHandler_FirstInterrupt(t *testing.T) {
 	case <-ctx.Done():
 		// Expected
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("context should be canceled after first signal")
+		t.Fatalf("NewHandlerWithOptions() context not canceled after 100ms, want canceled")
 	}
 
 	// WasInterrupted should be true
-	if !h.WasInterrupted() {
-		t.Error("WasInterrupted should be true after first signal")
+	if got := h.WasInterrupted(); !got {
+		t.Errorf("WasInterrupted() = %v, want true", got)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestHandler_DoubleInterruptWithinWindow(t *testing.T) {
 	case <-ctx.Done():
 		// Expected
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("context should be canceled after first signal")
+		t.Fatalf("NewHandlerWithOptions() context not canceled after 100ms, want canceled")
 	}
 
 	// Send second signal (within window)
@@ -191,7 +191,7 @@ func TestHandler_DoubleInterruptWithinWindow(t *testing.T) {
 	for exitCode.Load() == -1 {
 		select {
 		case <-deadline:
-			t.Fatal("exitFunc should have been called")
+			t.Fatalf("exitFunc not called after 100ms, want called")
 		default:
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -199,12 +199,12 @@ func TestHandler_DoubleInterruptWithinWindow(t *testing.T) {
 
 	// Verify exit code
 	if got := exitCode.Load(); got != 130 {
-		t.Errorf("exitFunc called with %d, want 130", got)
+		t.Errorf("exitFunc(code) = %d, want 130", got)
 	}
 
 	// Verify stderr message
 	if !stderr.Contains("Aborted.") {
-		t.Errorf("stderr should contain 'Aborted.', got: %q", stderr.String())
+		t.Errorf("stderr = %q, want containing %q", stderr.String(), "Aborted.")
 	}
 }
 
@@ -249,7 +249,7 @@ func TestHandler_DoubleInterruptOutsideWindow(t *testing.T) {
 	case <-ctx.Done():
 		// Expected
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("context should be canceled after first signal")
+		t.Fatalf("NewHandlerWithOptions() context not canceled after 100ms, want canceled")
 	}
 
 	// Send second signal (outside window)
@@ -259,13 +259,13 @@ func TestHandler_DoubleInterruptOutsideWindow(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Exit should NOT have been called
-	if exitCalled.Load() {
-		t.Error("exitFunc should NOT be called when second signal is outside window")
+	if got := exitCalled.Load(); got {
+		t.Errorf("exitFunc called = %v, want false (second signal outside window)", got)
 	}
 
 	// Handler should still report interrupted
-	if !h.WasInterrupted() {
-		t.Error("WasInterrupted should be true")
+	if got := h.WasInterrupted(); !got {
+		t.Errorf("WasInterrupted() = %v, want true", got)
 	}
 }
 
@@ -310,7 +310,7 @@ func TestHandler_WaitForDecision_Continue(t *testing.T) {
 	select {
 	case <-ctx.Done():
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("context should be canceled")
+		t.Fatalf("NewHandlerWithOptions() context not canceled after 100ms, want canceled")
 	}
 
 	// Call WaitForDecision - should return Continue after ~50ms
@@ -319,17 +319,18 @@ func TestHandler_WaitForDecision_Continue(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if behavior != interrupt.Continue {
-		t.Errorf("WaitForDecision returned %v, want Continue", behavior)
+		t.Errorf("WaitForDecision() = %v, want Continue", behavior)
 	}
 
 	// Should have taken approximately 50ms (with generous margin)
 	if elapsed > 500*time.Millisecond {
-		t.Errorf("WaitForDecision took %v, expected ~50ms", elapsed)
+		t.Errorf("WaitForDecision() took %v, want ~50ms", elapsed)
 	}
 
 	// Message should have been written to stderr
-	if !stderr.Contains("Press Ctrl+C again to abort...") {
-		t.Errorf("stderr should contain message, got: %q", stderr.String())
+	const wantMsg = "Press Ctrl+C again to abort..."
+	if !stderr.Contains(wantMsg) {
+		t.Errorf("stderr = %q, want containing %q", stderr.String(), wantMsg)
 	}
 }
 
@@ -366,7 +367,7 @@ func TestHandler_WaitForDecision_Abort(t *testing.T) {
 	select {
 	case <-ctx.Done():
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("context should be canceled")
+		t.Fatalf("NewHandlerWithOptions() context not canceled after 100ms, want canceled")
 	}
 
 	// Start WaitForDecision in goroutine
@@ -385,13 +386,13 @@ func TestHandler_WaitForDecision_Abort(t *testing.T) {
 	select {
 	case behavior := <-behaviorCh:
 		if behavior != interrupt.Abort {
-			t.Errorf("WaitForDecision returned %v, want Abort", behavior)
+			t.Errorf("WaitForDecision() = %v, want Abort", behavior)
 		}
 	case <-time.After(500 * time.Millisecond):
 		// exitFunc was called (which doesn't return in real code)
 		// Check that it was called with correct code
 		if exitCode.Load() != 130 {
-			t.Fatal("neither WaitForDecision returned Abort nor exitFunc called")
+			t.Fatalf("WaitForDecision() did not return and exitFunc not called with 130")
 		}
 	}
 }
@@ -418,17 +419,17 @@ func TestHandler_WaitForDecision_NotInterrupted(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if behavior != interrupt.Continue {
-		t.Errorf("WaitForDecision returned %v, want Continue", behavior)
+		t.Errorf("WaitForDecision() = %v, want Continue", behavior)
 	}
 
 	// Should return almost immediately (< 10ms)
 	if elapsed > 50*time.Millisecond {
-		t.Errorf("WaitForDecision took %v, expected immediate return", elapsed)
+		t.Errorf("WaitForDecision() took %v, want immediate return", elapsed)
 	}
 
 	// Message should NOT have been written (fast path)
-	if stderr.Len() > 0 {
-		t.Errorf("stderr should be empty for non-interrupted handler, got: %q", stderr.String())
+	if got := stderr.Len(); got > 0 {
+		t.Errorf("stderr length = %d, want 0 (got: %q)", got, stderr.String())
 	}
 }
 
@@ -461,7 +462,7 @@ func TestHandler_WaitForDecision_AlreadyAborted(t *testing.T) {
 	select {
 	case <-ctx.Done():
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("context should be canceled")
+		t.Fatalf("NewHandlerWithOptions() context not canceled after 100ms, want canceled")
 	}
 
 	sigCh <- os.Interrupt
@@ -470,7 +471,7 @@ func TestHandler_WaitForDecision_AlreadyAborted(t *testing.T) {
 	select {
 	case <-exitCalled:
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("exitFunc should have been called")
+		t.Fatalf("exitFunc not called after 100ms, want called")
 	}
 
 	// Now WaitForDecision should return Abort immediately
@@ -479,11 +480,11 @@ func TestHandler_WaitForDecision_AlreadyAborted(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if behavior != interrupt.Abort {
-		t.Errorf("WaitForDecision returned %v, want Abort", behavior)
+		t.Errorf("WaitForDecision() = %v, want Abort", behavior)
 	}
 
 	if elapsed > 50*time.Millisecond {
-		t.Errorf("WaitForDecision took %v, expected immediate return", elapsed)
+		t.Errorf("WaitForDecision() took %v, want immediate return", elapsed)
 	}
 }
 
@@ -525,7 +526,7 @@ func TestHandler_WaitForDecision_WindowExpired(t *testing.T) {
 	select {
 	case <-ctx.Done():
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("context should be canceled")
+		t.Fatalf("NewHandlerWithOptions() context not canceled after 100ms, want canceled")
 	}
 
 	// WaitForDecision with expired window should return immediately
@@ -534,11 +535,11 @@ func TestHandler_WaitForDecision_WindowExpired(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if behavior != interrupt.Continue {
-		t.Errorf("WaitForDecision returned %v, want Continue", behavior)
+		t.Errorf("WaitForDecision() = %v, want Continue", behavior)
 	}
 
 	if elapsed > 50*time.Millisecond {
-		t.Errorf("WaitForDecision took %v, expected immediate return", elapsed)
+		t.Errorf("WaitForDecision() took %v, want immediate return", elapsed)
 	}
 }
 
@@ -565,8 +566,8 @@ func TestHandler_Stop(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// WasInterrupted should be false (signal was ignored)
-	if h.WasInterrupted() {
-		t.Error("WasInterrupted should be false after Stop")
+	if got := h.WasInterrupted(); got {
+		t.Errorf("WasInterrupted() = %v, want false after Stop()", got)
 	}
 
 	// Stop again should not panic (idempotent)
@@ -587,18 +588,18 @@ func TestHandler_NilSigCh(t *testing.T) {
 
 	// Context should not be nil
 	if ctx == nil {
-		t.Fatal("context should not be nil")
+		t.Fatalf("NewHandlerWithOptions(nil sigCh) context = nil, want non-nil")
 	}
 
 	// WasInterrupted should be false
-	if h.WasInterrupted() {
-		t.Error("WasInterrupted should be false with nil sigCh")
+	if got := h.WasInterrupted(); got {
+		t.Errorf("WasInterrupted() = %v, want false with nil sigCh", got)
 	}
 
 	// WaitForDecision should return Continue immediately
 	behavior := h.WaitForDecision("message")
 	if behavior != interrupt.Continue {
-		t.Errorf("WaitForDecision returned %v, want Continue", behavior)
+		t.Errorf("WaitForDecision() = %v, want Continue", behavior)
 	}
 
 	// Stop should not panic
@@ -626,8 +627,8 @@ func TestHandler_ChannelClosed(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Should not panic, WasInterrupted still false
-	if h.WasInterrupted() {
-		t.Error("WasInterrupted should be false when channel closed without signal")
+	if got := h.WasInterrupted(); got {
+		t.Errorf("WasInterrupted() = %v, want false when channel closed without signal", got)
 	}
 }
 
@@ -654,12 +655,12 @@ func TestHandler_ParentContextCanceled(t *testing.T) {
 	case <-ctx.Done():
 		// Expected - parent cancellation propagates
 	case <-time.After(100 * time.Millisecond):
-		t.Error("handler context should be canceled when parent is canceled")
+		t.Errorf("NewHandlerWithOptions() context not canceled after parent cancel, want canceled")
 	}
 
 	// WasInterrupted should still be false (canceled by parent, not signal)
-	if h.WasInterrupted() {
-		t.Error("WasInterrupted should be false when canceled by parent")
+	if got := h.WasInterrupted(); got {
+		t.Errorf("WasInterrupted() = %v, want false when canceled by parent", got)
 	}
 }
 
@@ -699,7 +700,7 @@ func TestBehavior_String(t *testing.T) {
 
 	for _, tt := range tests {
 		if got := tt.behavior.String(); got != tt.want {
-			t.Errorf("%v.String() = %q, want %q", tt.behavior, got, tt.want)
+			t.Errorf("Behavior(%v).String() = %q, want %q", int(tt.behavior), got, tt.want)
 		}
 	}
 }

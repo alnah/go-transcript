@@ -112,32 +112,32 @@ func TestSplitTranscript(t *testing.T) {
 			}
 		})
 	}
-}
 
-func TestSplitTranscript_PreservesParagraphBoundaries(t *testing.T) {
-	t.Parallel()
+	t.Run("preserves paragraph boundaries", func(t *testing.T) {
+		t.Parallel()
 
-	para1 := "First paragraph content here."
-	para2 := "Second paragraph content here."
-	para3 := "Third paragraph content here."
+		para1 := "First paragraph content here."
+		para2 := "Second paragraph content here."
+		para3 := "Third paragraph content here."
 
-	transcript := para1 + "\n\n" + para2 + "\n\n" + para3
+		transcript := para1 + "\n\n" + para2 + "\n\n" + para3
 
-	// Set maxTokens low enough to force splitting but high enough for one para
-	chunks := restructure.SplitTranscript(transcript, 15)
+		// Set maxTokens low enough to force splitting but high enough for one para
+		chunks := restructure.SplitTranscript(transcript, 15)
 
-	if chunks == nil {
-		t.Fatal("expected chunks, got nil")
-	}
-
-	// Verify paragraphs are not split mid-sentence
-	for i, chunk := range chunks {
-		if strings.Contains(chunk.Content, "\n\n") {
-			// If a chunk contains paragraph separator, it should be at most
-			// two paragraphs that fit together
-			t.Logf("chunk %d contains multiple paragraphs (may be OK if they fit): %q", i, chunk.Content)
+		if chunks == nil {
+			t.Fatal("SplitTranscript() expected chunks, got nil")
 		}
-	}
+
+		// Verify paragraphs are not split mid-sentence
+		for i, chunk := range chunks {
+			if strings.Contains(chunk.Content, "\n\n") {
+				// If a chunk contains paragraph separator, it should be at most
+				// two paragraphs that fit together
+				t.Logf("chunk %d contains multiple paragraphs (may be OK if they fit): %q", i, chunk.Content)
+			}
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +223,7 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		result, usedMapReduce, err := mr.Restructure(context.Background(), "Short transcript.", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		if usedMapReduce {
@@ -272,7 +272,7 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		result, usedMapReduce, err := mr.Restructure(context.Background(), transcript, template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		if !usedMapReduce {
@@ -325,7 +325,7 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		_, _, err := mr.Restructure(context.Background(), transcript, template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		progressMu.Lock()
@@ -419,7 +419,7 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		_, _, err := mr.Restructure(context.Background(), transcript, template.MustParseName("meeting"), lang.MustParse("pt-BR"))
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		mu.Lock()

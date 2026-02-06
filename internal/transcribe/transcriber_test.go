@@ -246,7 +246,7 @@ func TestNewOpenAITranscriber(t *testing.T) {
 
 		result, err := tr.Transcribe(context.Background(), "test.mp3", transcribe.Options{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 		if result != "hello" {
 			t.Errorf("got %q, want %q", result, "hello")
@@ -270,7 +270,7 @@ func TestTranscribe_Success(t *testing.T) {
 
 		result, err := tr.Transcribe(context.Background(), "audio.mp3", transcribe.Options{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 		if result != "transcribed text" {
 			t.Errorf("got %q, want %q", result, "transcribed text")
@@ -288,7 +288,7 @@ func TestTranscribe_Success(t *testing.T) {
 			Language: lang.MustParse("fr-FR"), // Should be converted to "fr"
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 
 		req := mock.LastRequest()
@@ -309,7 +309,7 @@ func TestTranscribe_Success(t *testing.T) {
 			Prompt: prompt,
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 
 		req := mock.LastRequest()
@@ -329,7 +329,7 @@ func TestTranscribe_Success(t *testing.T) {
 			Diarize: false,
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 
 		req := mock.LastRequest()
@@ -355,7 +355,7 @@ func TestTranscribe_Success(t *testing.T) {
 			Diarize: true,
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 		if result != "diarized text" {
 			t.Errorf("got %q, want %q", result, "diarized text")
@@ -399,7 +399,7 @@ func TestTranscribe_Diarization(t *testing.T) {
 			Diarize: true,
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 
 		// Verify speaker markers are present
@@ -435,7 +435,7 @@ func TestTranscribe_Diarization(t *testing.T) {
 			Diarize: true,
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 
 		if result != "fallback text" {
@@ -466,7 +466,7 @@ func TestTranscribe_Diarization(t *testing.T) {
 			Diarize: true,
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 
 		// Should use "Speaker <id>" format when speaker field is empty
@@ -492,7 +492,7 @@ func TestTranscribe_Diarization(t *testing.T) {
 			Diarize: true,
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 
 		// Verify chunking_strategy was sent
@@ -542,7 +542,7 @@ func TestTranscribe_Diarization(t *testing.T) {
 			Language: lang.MustParse("fr-FR"),
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 
 		// Verify language was included in request body
@@ -715,7 +715,7 @@ func TestTranscribe_DiarizationErrors(t *testing.T) {
 			Diarize: true,
 		})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 		if result != "success after retry" {
 			t.Errorf("got %q, want %q", result, "success after retry")
@@ -901,7 +901,7 @@ func TestTranscribe_Retry(t *testing.T) {
 
 		result, err := tr.Transcribe(context.Background(), "audio.mp3", transcribe.Options{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 		if result != "success" {
 			t.Errorf("got %q, want %q", result, "success")
@@ -929,7 +929,7 @@ func TestTranscribe_Retry(t *testing.T) {
 
 		result, err := tr.Transcribe(context.Background(), "audio.mp3", transcribe.Options{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 		if result != "recovered" {
 			t.Errorf("got %q, want %q", result, "recovered")
@@ -1096,7 +1096,7 @@ func TestTranscribe_Options(t *testing.T) {
 
 		result, err := tr.Transcribe(context.Background(), "audio.mp3", transcribe.Options{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("Transcribe() unexpected error: %v", err)
 		}
 		if result != "ok" {
 			t.Errorf("got %q, want %q", result, "ok")
@@ -1130,7 +1130,7 @@ func TestRetryWithBackoff(t *testing.T) {
 		)
 
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("RetryWithBackoff() unexpected error: %v", err)
 		}
 		if result != "immediate" {
 			t.Errorf("got %q, want %q", result, "immediate")
@@ -1254,7 +1254,7 @@ func TestRetryWithBackoff(t *testing.T) {
 		)
 
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("RetryWithBackoff() unexpected error: %v", err)
 		}
 		if callCount != 2 {
 			t.Errorf("call count = %d, want 2", callCount)
@@ -1279,7 +1279,7 @@ func TestRetryWithBackoff(t *testing.T) {
 		)
 
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("RetryWithBackoff() unexpected error: %v", err)
 		}
 		if callCount != 2 {
 			t.Errorf("call count = %d, want 2", callCount)
@@ -1306,7 +1306,7 @@ func TestTranscribeAll(t *testing.T) {
 		)
 
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("TranscribeAll() unexpected error: %v", err)
 		}
 		if results != nil {
 			t.Errorf("got %v, want nil", results)
@@ -1332,7 +1332,7 @@ func TestTranscribeAll(t *testing.T) {
 		)
 
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("TranscribeAll() unexpected error: %v", err)
 		}
 		if len(results) != 1 {
 			t.Fatalf("got %d results, want 1", len(results))
@@ -1365,7 +1365,7 @@ func TestTranscribeAll(t *testing.T) {
 		)
 
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("TranscribeAll() unexpected error: %v", err)
 		}
 		if len(results) != 3 {
 			t.Fatalf("got %d results, want 3", len(results))
@@ -1462,7 +1462,7 @@ func TestTranscribeAll(t *testing.T) {
 		)
 
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("TranscribeAll() unexpected error: %v", err)
 		}
 		if len(results) != 3 {
 			t.Fatalf("got %d results, want 3", len(results))
@@ -1493,7 +1493,7 @@ func TestTranscribeAll(t *testing.T) {
 		)
 
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("TranscribeAll() unexpected error: %v", err)
 		}
 		if len(results) != 1 {
 			t.Fatalf("got %d results, want 1", len(results))
@@ -1519,7 +1519,7 @@ func TestTranscribeAll(t *testing.T) {
 		)
 
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Errorf("TranscribeAll() unexpected error: %v", err)
 		}
 		if len(results) != 1 {
 			t.Fatalf("got %d results, want 1", len(results))

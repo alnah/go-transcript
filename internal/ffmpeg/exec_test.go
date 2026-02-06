@@ -67,14 +67,14 @@ func TestExecutor_RunOutput(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Error("expected error, got nil")
+					t.Errorf("RunOutput(%q) error = nil, want error", []string{"-version"})
 				}
 			} else {
 				if err != nil {
-					t.Errorf("unexpected error: %v", err)
+					t.Fatalf("RunOutput(%q) unexpected error: %v", []string{"-version"}, err)
 				}
 				if got != tt.wantOutput {
-					t.Errorf("got %q, want %q", got, tt.wantOutput)
+					t.Errorf("RunOutput(%q) = %q, want %q", []string{"-version"}, got, tt.wantOutput)
 				}
 			}
 		})
@@ -97,12 +97,12 @@ func TestDefaultRunOutput_RealCommand(t *testing.T) {
 
 	output, err := defaultRunOutput(context.Background(), cmd, args)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("defaultRunOutput(%q, %v) unexpected error: %v", cmd, args, err)
 	}
 
 	// Output should contain "hello" (written to stderr)
 	if runtime.GOOS != "windows" && !strings.Contains(output, "hello") {
-		t.Errorf("expected output to contain 'hello', got %q", output)
+		t.Errorf("defaultRunOutput(%q, %v) = %q, want containing %q", cmd, args, output, "hello")
 	}
 }
 
@@ -113,10 +113,10 @@ func TestDefaultRunOutput_NonexistentCommand(t *testing.T) {
 	// Callers can choose to ignore the error and use the output.
 	output, err := defaultRunOutput(context.Background(), "/nonexistent/command", []string{})
 	if err == nil {
-		t.Error("expected error for non-existent command")
+		t.Errorf("defaultRunOutput(%q, %v) error = nil, want error", "/nonexistent/command", []string{})
 	}
 	if output != "" {
-		t.Errorf("expected empty output for non-existent command, got %q", output)
+		t.Errorf("defaultRunOutput(%q, %v) = %q, want empty string", "/nonexistent/command", []string{}, output)
 	}
 }
 
@@ -205,11 +205,11 @@ func TestVersionChecker_Check(t *testing.T) {
 			gotWarning := stderrBuf.String()
 			if tt.expectWarning {
 				if !strings.Contains(gotWarning, tt.wantWarningMsg) {
-					t.Errorf("expected warning containing %q, got %q", tt.wantWarningMsg, gotWarning)
+					t.Errorf("Check(%q) warning = %q, want containing %q", "/usr/bin/ffmpeg", gotWarning, tt.wantWarningMsg)
 				}
 			} else {
 				if gotWarning != "" {
-					t.Errorf("expected no warning, got %q", gotWarning)
+					t.Errorf("Check(%q) warning = %q, want empty string", "/usr/bin/ffmpeg", gotWarning)
 				}
 			}
 		})
@@ -233,12 +233,12 @@ func TestVersionChecker_Check_RunOutputError(t *testing.T) {
 	// Should return false when RunOutput returns error with empty output
 	ok := checker.Check(context.Background(), "/usr/bin/ffmpeg")
 	if ok {
-		t.Error("expected Check to return false on error")
+		t.Errorf("Check(%q) = true, want false", "/usr/bin/ffmpeg")
 	}
 
 	// And should not produce any output
 	if stderrBuf.String() != "" {
-		t.Errorf("expected no output on error, got %q", stderrBuf.String())
+		t.Errorf("Check(%q) output = %q, want empty string", "/usr/bin/ffmpeg", stderrBuf.String())
 	}
 }
 
@@ -303,7 +303,7 @@ func TestRunGraceful_NormalCompletion(t *testing.T) {
 	// Use a command that completes quickly
 	err := RunGraceful(context.Background(), "sh", []string{"-c", "exit 0"}, time.Second)
 	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+		t.Errorf("RunGraceful(%q, %v) unexpected error: %v", "sh", []string{"-c", "exit 0"}, err)
 	}
 }
 
@@ -317,7 +317,7 @@ func TestRunGraceful_CommandFails(t *testing.T) {
 	// Command that exits with error
 	err := RunGraceful(context.Background(), "sh", []string{"-c", "exit 1"}, time.Second)
 	if err == nil {
-		t.Error("expected error for failed command")
+		t.Errorf("RunGraceful(%q, %v) error = nil, want error", "sh", []string{"-c", "exit 1"})
 	}
 }
 
@@ -326,7 +326,7 @@ func TestRunGraceful_NonexistentCommand(t *testing.T) {
 
 	err := RunGraceful(context.Background(), "/nonexistent/command", []string{}, time.Second)
 	if err == nil {
-		t.Error("expected error for non-existent command")
+		t.Errorf("RunGraceful(%q, %v) error = nil, want error", "/nonexistent/command", []string{})
 	}
 }
 
@@ -363,7 +363,7 @@ func TestRunGraceful_ContextCancellation(t *testing.T) {
 			t.Logf("got error after cancellation: %v (may be expected)", err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Error("command did not exit after context cancellation")
+		t.Errorf("RunGraceful(%q, %v) did not exit after context cancellation within 3s", "cat", []string{})
 	}
 }
 
@@ -397,12 +397,11 @@ func TestRunGraceful_Timeout(t *testing.T) {
 	case err := <-done:
 		// Should timeout and return ErrTimeout
 		if err == nil {
-			t.Error("expected timeout error")
-		}
-		if !errors.Is(err, ErrTimeout) {
-			t.Errorf("expected ErrTimeout, got: %v", err)
+			t.Errorf("RunGraceful(%q, %v) error = nil, want ErrTimeout", "sleep", []string{"10"})
+		} else if !errors.Is(err, ErrTimeout) {
+			t.Errorf("RunGraceful(%q, %v) error = %v, want ErrTimeout", "sleep", []string{"10"}, err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Error("command did not exit after timeout")
+		t.Errorf("RunGraceful(%q, %v) did not exit within 3s after timeout", "sleep", []string{"10"})
 	}
 }

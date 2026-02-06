@@ -217,20 +217,19 @@ func TestDetectLoopbackLinuxWithRunner(t *testing.T) {
 			device, err := audio.DetectLoopbackLinuxWithRunner(context.Background(), tt.runner)
 
 			if (err != nil) != tt.wantErr {
-				t.Errorf("DetectLoopbackLinuxWithRunner() error = %v, wantErr %v", err, tt.wantErr)
-				return
+				t.Fatalf("DetectLoopbackLinuxWithRunner() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			if tt.wantDevice {
 				if device == nil {
-					t.Error("DetectLoopbackLinuxWithRunner() returned nil device, want device")
+					t.Errorf("DetectLoopbackLinuxWithRunner() returned nil device, want non-nil")
 				}
 			}
 
 			if tt.wantErr && err != nil {
 				// Verify error wraps ErrLoopbackNotFound
 				if !errors.Is(err, audio.ErrLoopbackNotFound) {
-					t.Errorf("error should wrap ErrLoopbackNotFound, got %v", err)
+					t.Errorf("DetectLoopbackLinuxWithRunner() error wrapping: errors.Is(err, ErrLoopbackNotFound) = false, want true")
 				}
 			}
 		})

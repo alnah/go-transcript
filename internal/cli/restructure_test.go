@@ -44,15 +44,15 @@ func TestRestructureContent_DefaultProvider(t *testing.T) {
 		// Provider omitted - zero value should default to deepseek
 	})
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RestructureContent() unexpected error: %v", err)
 	}
 
 	calls := restructurerFactory.NewMapReducerCalls()
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(calls))
+		t.Fatalf("NewMapReducer() calls = %d, want 1", len(calls))
 	}
 	if calls[0].Provider != DeepSeekProvider {
-		t.Errorf("expected default provider %q, got %q", DeepSeekProvider, calls[0].Provider)
+		t.Errorf("NewMapReducer() provider = %q, want %q", calls[0].Provider, DeepSeekProvider)
 	}
 }
 
@@ -76,10 +76,10 @@ func TestRestructureContent_DeepSeekMissingKey(t *testing.T) {
 	})
 
 	if err == nil {
-		t.Fatal("expected error for missing DeepSeek key")
+		t.Fatal("RestructureContent() error = nil, want ErrDeepSeekKeyMissing")
 	}
 	if !errors.Is(err, ErrDeepSeekKeyMissing) {
-		t.Errorf("expected ErrDeepSeekKeyMissing, got %v", err)
+		t.Errorf("RestructureContent() error = %v, want ErrDeepSeekKeyMissing", err)
 	}
 }
 
@@ -103,10 +103,10 @@ func TestRestructureContent_OpenAIMissingKey(t *testing.T) {
 	})
 
 	if err == nil {
-		t.Fatal("expected error for missing OpenAI key")
+		t.Fatal("RestructureContent() error = nil, want ErrAPIKeyMissing")
 	}
 	if !errors.Is(err, ErrAPIKeyMissing) {
-		t.Errorf("expected ErrAPIKeyMissing, got %v", err)
+		t.Errorf("RestructureContent() error = %v, want ErrAPIKeyMissing", err)
 	}
 }
 
@@ -130,10 +130,10 @@ func TestRestructureContent_FactoryError(t *testing.T) {
 	})
 
 	if err == nil {
-		t.Fatal("expected error when factory fails")
+		t.Fatal("RestructureContent() error = nil, want factory error")
 	}
 	if !errors.Is(err, factoryErr) {
-		t.Errorf("expected factory error, got %v", err)
+		t.Errorf("RestructureContent() error = %v, want factory error", err)
 	}
 }
 
@@ -161,22 +161,22 @@ func TestRestructureContent_Success(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RestructureContent() unexpected error: %v", err)
 	}
 	if result != "# Restructured\n\nContent here." {
-		t.Errorf("expected restructured content, got %q", result)
+		t.Errorf("RestructureContent() = %q, want %q", result, "# Restructured\n\nContent here.")
 	}
 
 	// Verify the restructurer was called with correct args
 	calls := mockMR.RestructureCalls()
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 restructure call, got %d", len(calls))
+		t.Fatalf("Restructure() calls = %d, want 1", len(calls))
 	}
 	if calls[0].Transcript != "raw content" {
-		t.Errorf("expected transcript 'raw content', got %q", calls[0].Transcript)
+		t.Errorf("Restructure() transcript = %q, want %q", calls[0].Transcript, "raw content")
 	}
 	if calls[0].TemplateName.String() != "brainstorm" {
-		t.Errorf("expected template 'brainstorm', got %q", calls[0].TemplateName)
+		t.Errorf("Restructure() template = %q, want %q", calls[0].TemplateName, "brainstorm")
 	}
 }
 
@@ -207,10 +207,10 @@ func TestRestructureContent_WithOutputLang(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RestructureContent() unexpected error: %v", err)
 	}
 	if capturedLang.String() != "fr" {
-		t.Errorf("expected output lang 'fr', got %q", capturedLang.String())
+		t.Errorf("Restructure() outputLang = %q, want %q", capturedLang.String(), "fr")
 	}
 }
 
@@ -246,14 +246,14 @@ func TestRestructureContent_WithProgressCallback(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RestructureContent() unexpected error: %v", err)
 	}
 
 	// Verify that options were passed to the factory.
 	// Note: We only verify the option is passed, not that it's invoked,
 	// since the mock doesn't call the callback.
 	if len(capturedOpts) == 0 {
-		t.Error("expected progress option to be passed to factory")
+		t.Error("NewMapReducer() options = 0, want > 0")
 	}
 }
 
@@ -282,10 +282,10 @@ func TestRestructureContent_RestructureError(t *testing.T) {
 	})
 
 	if err == nil {
-		t.Fatal("expected error when restructuring fails")
+		t.Fatal("RestructureContent() error = nil, want restructure error")
 	}
 	if !errors.Is(err, restructureErr) {
-		t.Errorf("expected restructure error, got %v", err)
+		t.Errorf("RestructureContent() error = %v, want restructure error", err)
 	}
 }
 
@@ -297,8 +297,8 @@ func TestRestructureContent_CorrectAPIKeyUsed(t *testing.T) {
 		provider    Provider
 		expectedKey string
 	}{
-		{"deepseek_uses_deepseek_key", DeepSeekProvider, "test-deepseek-key"},
-		{"openai_uses_openai_key", OpenAIProvider, "test-openai-key"},
+		{"deepseek uses deepseek key", DeepSeekProvider, "test-deepseek-key"},
+		{"openai uses openai key", OpenAIProvider, "test-openai-key"},
 	}
 
 	for _, tt := range tests {
@@ -326,15 +326,15 @@ func TestRestructureContent_CorrectAPIKeyUsed(t *testing.T) {
 			})
 
 			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
+				t.Fatalf("RestructureContent() unexpected error: %v", err)
 			}
 
 			calls := restructurerFactory.NewMapReducerCalls()
 			if len(calls) != 1 {
-				t.Fatalf("expected 1 call, got %d", len(calls))
+				t.Fatalf("NewMapReducer() calls = %d, want 1", len(calls))
 			}
 			if calls[0].APIKey != tt.expectedKey {
-				t.Errorf("expected API key %q, got %q", tt.expectedKey, calls[0].APIKey)
+				t.Errorf("NewMapReducer() apiKey = %q, want %q", calls[0].APIKey, tt.expectedKey)
 			}
 		})
 	}

@@ -190,10 +190,10 @@ func TestNewDeepSeekRestructurer(t *testing.T) {
 
 		_, err := restructure.NewDeepSeekRestructurer("")
 		if err == nil {
-			t.Fatal("expected error for empty API key")
+			t.Fatal("NewDeepSeekRestructurer(\"\") expected error, got nil")
 		}
 		if !errors.Is(err, restructure.ErrEmptyAPIKey) {
-			t.Errorf("expected ErrEmptyAPIKey, got: %v", err)
+			t.Errorf("NewDeepSeekRestructurer(\"\") error = %v, want ErrEmptyAPIKey", err)
 		}
 	})
 
@@ -202,10 +202,10 @@ func TestNewDeepSeekRestructurer(t *testing.T) {
 
 		r, err := restructure.NewDeepSeekRestructurer("test-key")
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("NewDeepSeekRestructurer(\"test-key\") unexpected error: %v", err)
 		}
 		if r == nil {
-			t.Fatal("expected non-nil restructurer")
+			t.Fatal("NewDeepSeekRestructurer(\"test-key\") returned nil restructurer")
 		}
 	})
 
@@ -220,10 +220,10 @@ func TestNewDeepSeekRestructurer(t *testing.T) {
 			restructure.WithDeepSeekMaxRetries(-1),     // Should be ignored (0 is valid)
 		)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("NewDeepSeekRestructurer(\"test-key\", invalid_opts) unexpected error: %v", err)
 		}
 		if r == nil {
-			t.Fatal("expected non-nil restructurer")
+			t.Fatal("NewDeepSeekRestructurer(\"test-key\", invalid_opts) returned nil restructurer")
 		}
 	})
 }
@@ -266,20 +266,20 @@ func TestClassifyDeepSeekError(t *testing.T) {
 
 			if tt.wantNil {
 				if got != nil {
-					t.Errorf("expected nil, got %v", got)
+					t.Errorf("ClassifyDeepSeekError(%v) = %v, want nil", tt.err, got)
 				}
 				return
 			}
 
 			if tt.wantErr == nil {
 				if got == nil {
-					t.Error("expected non-nil error")
+					t.Errorf("ClassifyDeepSeekError(%v) = nil, want non-nil error", tt.err)
 				}
 				return
 			}
 
 			if !errors.Is(got, tt.wantErr) {
-				t.Errorf("expected error wrapping %v, got %v", tt.wantErr, got)
+				t.Errorf("ClassifyDeepSeekError(%v) = %v, want error wrapping %v", tt.err, got, tt.wantErr)
 			}
 		})
 	}
@@ -340,7 +340,7 @@ func TestIsRetryableDeepSeekError(t *testing.T) {
 
 			got := restructure.IsRetryableDeepSeekError(tt.err)
 			if got != tt.want {
-				t.Errorf("IsRetryableDeepSeekError() = %v, want %v", got, tt.want)
+				t.Errorf("IsRetryableDeepSeekError(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
 	}
@@ -368,15 +368,15 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		result, err := r.Restructure(context.Background(), "Raw transcript.", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		if result != "# Restructured Content\n\nThis is the result." {
-			t.Errorf("unexpected result: %s", result)
+			t.Errorf("Restructure() = %q, want %q", result, "# Restructured Content\n\nThis is the result.")
 		}
 
 		if server.callCount() != 1 {
-			t.Errorf("expected 1 call, got %d", server.callCount())
+			t.Errorf("callCount() = %d, want 1", server.callCount())
 		}
 	})
 
@@ -400,15 +400,15 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), longTranscript, template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
-			t.Fatal("expected error for long transcript")
+			t.Fatal("Restructure(long_transcript) expected error, got nil")
 		}
 
 		if !errors.Is(err, restructure.ErrTranscriptTooLong) {
-			t.Errorf("expected ErrTranscriptTooLong, got %v", err)
+			t.Errorf("Restructure(long_transcript) error = %v, want ErrTranscriptTooLong", err)
 		}
 
 		if server.callCount() != 0 {
-			t.Error("should not call API if transcript too long")
+			t.Errorf("callCount() = %d, want 0 (should not call API if transcript too long)", server.callCount())
 		}
 	})
 
@@ -427,12 +427,12 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("fr"))
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		prompt := server.systemPrompt()
 		if !strings.Contains(prompt, "Respond in French") {
-			t.Errorf("expected language instruction, got: %s", prompt)
+			t.Errorf("systemPrompt() = %q, want containing %q", prompt, "Respond in French")
 		}
 	})
 
@@ -451,12 +451,12 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.MustParse("en"))
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		prompt := server.systemPrompt()
 		if strings.Contains(prompt, "Respond in") {
-			t.Errorf("should not add language instruction for English, got: %s", prompt)
+			t.Errorf("systemPrompt() = %q, should not contain language instruction for English", prompt)
 		}
 	})
 
@@ -478,11 +478,11 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err == nil {
-			t.Fatal("expected error for empty choices")
+			t.Fatal("Restructure() with empty choices expected error, got nil")
 		}
 
 		if !strings.Contains(err.Error(), "no response") {
-			t.Errorf("expected 'no response' error, got: %v", err)
+			t.Errorf("Restructure() error = %q, want containing %q", err.Error(), "no response")
 		}
 	})
 
@@ -500,12 +500,12 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		call := server.lastCall()
 		if call.Model != "deepseek-reasoner" {
-			t.Errorf("expected model deepseek-reasoner, got %s", call.Model)
+			t.Errorf("lastCall().Model = %q, want %q", call.Model, "deepseek-reasoner")
 		}
 	})
 
@@ -524,12 +524,12 @@ func TestDeepSeekRestructurer_Restructure(t *testing.T) {
 
 		_, err := r.Restructure(context.Background(), "transcript", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		call := server.lastCall()
 		if call.Model != "deepseek-chat" {
-			t.Errorf("expected model deepseek-chat, got %s", call.Model)
+			t.Errorf("lastCall().Model = %q, want %q", call.Model, "deepseek-chat")
 		}
 	})
 }
@@ -612,24 +612,24 @@ func TestDeepSeekRestructurer_HTTPErrors(t *testing.T) {
 			if tt.retryable {
 				// Should eventually succeed after retries
 				if err != nil {
-					t.Fatalf("expected success after retries, got: %v", err)
+					t.Fatalf("Restructure() with retryable error, expected success after retries, got error: %v", err)
 				}
 				if result != "success" {
-					t.Errorf("unexpected result: %s", result)
+					t.Errorf("Restructure() = %q, want %q", result, "success")
 				}
 				if server.callCount() != 3 {
-					t.Errorf("expected 3 calls (2 failures + 1 success), got %d", server.callCount())
+					t.Errorf("callCount() = %d, want 3 (2 failures + 1 success)", server.callCount())
 				}
 			} else {
 				// Should fail without retry
 				if err == nil {
-					t.Fatal("expected error")
+					t.Fatal("Restructure() with non-retryable error expected error, got nil")
 				}
 				if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
-					t.Errorf("expected error wrapping %v, got: %v", tt.wantErr, err)
+					t.Errorf("Restructure() error = %v, want error wrapping %v", err, tt.wantErr)
 				}
 				if server.callCount() != 1 {
-					t.Errorf("expected 1 call (no retry), got %d", server.callCount())
+					t.Errorf("callCount() = %d, want 1 (no retry)", server.callCount())
 				}
 			}
 		})
@@ -670,19 +670,19 @@ func TestDeepSeekRestructurer_WithMapReduce(t *testing.T) {
 
 		result, usedMapReduce, err := mr.Restructure(context.Background(), transcript, template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		if !usedMapReduce {
-			t.Error("should use MapReduce for long transcript")
+			t.Errorf("Restructure(long_transcript) usedMapReduce = false, want true")
 		}
 
 		if result != "# Merged Final Result" {
-			t.Errorf("unexpected result: %s", result)
+			t.Errorf("Restructure() = %q, want %q", result, "# Merged Final Result")
 		}
 
 		if server.callCount() != 3 {
-			t.Errorf("expected 3 API calls (2 map + 1 reduce), got %d", server.callCount())
+			t.Errorf("callCount() = %d, want 3 (2 map + 1 reduce)", server.callCount())
 		}
 	})
 
@@ -705,19 +705,19 @@ func TestDeepSeekRestructurer_WithMapReduce(t *testing.T) {
 
 		result, usedMapReduce, err := mr.Restructure(context.Background(), "Short transcript.", template.MustParseName("meeting"), lang.Language{})
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
 		if usedMapReduce {
-			t.Error("should not use MapReduce for short transcript")
+			t.Errorf("Restructure(short_transcript) usedMapReduce = true, want false")
 		}
 
 		if result != "Simple result." {
-			t.Errorf("unexpected result: %s", result)
+			t.Errorf("Restructure() = %q, want %q", result, "Simple result.")
 		}
 
 		if server.callCount() != 1 {
-			t.Errorf("expected 1 API call, got %d", server.callCount())
+			t.Errorf("callCount() = %d, want 1", server.callCount())
 		}
 	})
 }

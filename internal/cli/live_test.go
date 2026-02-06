@@ -41,10 +41,10 @@ func TestAudioOutputPath(t *testing.T) {
 		mdPath   string
 		expected string
 	}{
-		{"md_to_ogg", "notes.md", "notes.ogg"},
-		{"txt_to_ogg", "transcript.txt", "transcript.ogg"},
-		{"no_extension", "output", "output.ogg"},
-		{"with_path", "/home/user/notes.md", "/home/user/notes.ogg"},
+		{"md to ogg", "notes.md", "notes.ogg"},
+		{"txt to ogg", "transcript.txt", "transcript.ogg"},
+		{"no extension", "output", "output.ogg"},
+		{"with path", "/home/user/notes.md", "/home/user/notes.ogg"},
 	}
 
 	for _, tt := range tests {
@@ -82,10 +82,10 @@ func TestRunLive_MissingAPIKey(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error for missing API key")
+		t.Fatal("RunLive() with missing API key: expected error, got nil")
 	}
 	if !errors.Is(err, ErrAPIKeyMissing) {
-		t.Errorf("expected ErrAPIKeyMissing, got %v", err)
+		t.Errorf("RunLive() error = %v, want ErrAPIKeyMissing", err)
 	}
 }
 
@@ -119,10 +119,10 @@ func TestRunLive_OutputLangRequiresTemplate(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when --translate without template")
+		t.Fatal("RunLive() with --translate without template: expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "translate") || !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected translate/template error, got %v", err)
+		t.Errorf("RunLive() error = %q, want containing %q and %q", err.Error(), "translate", "template")
 	}
 }
 
@@ -148,10 +148,10 @@ func TestRunLive_KeepRawTranscriptRequiresTemplate(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when --keep-raw-transcript without template")
+		t.Fatal("RunLive() with --keep-raw-transcript without template: expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "keep-raw-transcript") || !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected keep-raw-transcript/template error, got %v", err)
+		t.Errorf("RunLive() error = %q, want containing %q and %q", err.Error(), "keep-raw-transcript", "template")
 	}
 }
 
@@ -179,11 +179,11 @@ func TestRunLive_KeepAllRequiresTemplate(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when --keep-all (expanded) without template")
+		t.Fatal("RunLive() with --keep-all (expanded) without template: expected error, got nil")
 	}
 	// Error will mention keep-raw-transcript since that's what's validated
 	if !strings.Contains(err.Error(), "keep-raw-transcript") || !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected keep-raw-transcript/template error, got %v", err)
+		t.Errorf("RunLive() error = %q, want containing %q and %q", err.Error(), "keep-raw-transcript", "template")
 	}
 }
 
@@ -214,10 +214,10 @@ func TestRunLive_OutputExists(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error for existing output file")
+		t.Fatal("RunLive() with existing output file: expected error, got nil")
 	}
 	if !errors.Is(err, ErrOutputExists) {
-		t.Errorf("expected ErrOutputExists, got %v", err)
+		t.Errorf("RunLive() error = %v, want ErrOutputExists", err)
 	}
 }
 
@@ -250,10 +250,10 @@ func TestRunLive_AudioOutputExists_KeepAudio(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error for existing audio file with --keep-audio")
+		t.Fatal("RunLive() with existing audio file and --keep-audio: expected error, got nil")
 	}
 	if !errors.Is(err, ErrOutputExists) {
-		t.Errorf("expected ErrOutputExists, got %v", err)
+		t.Errorf("RunLive() error = %v, want ErrOutputExists", err)
 	}
 }
 
@@ -284,10 +284,10 @@ func TestRunLive_FFmpegResolveFails(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when ffmpeg not found")
+		t.Fatal("RunLive() with ffmpeg not found: expected error, got nil")
 	}
 	if !errors.Is(err, ffmpegErr) {
-		t.Errorf("expected ffmpeg error, got %v", err)
+		t.Errorf("RunLive() error = %v, want ffmpegErr", err)
 	}
 }
 
@@ -362,29 +362,29 @@ func TestRunLive_Success(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunLive() unexpected error: %v", err)
 	}
 
 	// Verify output file was created
 	expectedOutput := filepath.Join(outputDir, "transcript_20260125_143052.md")
 	content, err := os.ReadFile(expectedOutput)
 	if err != nil {
-		t.Fatalf("failed to read output file: %v", err)
+		t.Fatalf("os.ReadFile(%q) unexpected error: %v", expectedOutput, err)
 	}
 	if string(content) != "This is the live transcription." {
-		t.Errorf("expected transcription, got %q", string(content))
+		t.Errorf("output file content = %q, want %q", string(content), "This is the live transcription.")
 	}
 
 	// Verify progress messages
 	output := stderr.String()
 	if !strings.Contains(output, "Recording") {
-		t.Errorf("expected 'Recording' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Recording")
 	}
 	if !strings.Contains(output, "Transcribing") {
-		t.Errorf("expected 'Transcribing' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Transcribing")
 	}
 	if !strings.Contains(output, "Done") {
-		t.Errorf("expected 'Done' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Done")
 	}
 }
 
@@ -452,19 +452,19 @@ func TestRunLive_WithKeepAudio(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunLive() unexpected error: %v", err)
 	}
 
 	// Verify audio file was kept
 	expectedAudio := filepath.Join(outputDir, "transcript_20260125_143052.ogg")
 	if _, err := os.Stat(expectedAudio); os.IsNotExist(err) {
-		t.Errorf("expected audio file at %s", expectedAudio)
+		t.Errorf("audio file at %s does not exist, want file to exist", expectedAudio)
 	}
 
 	// Verify output mentions saved audio
 	output := stderr.String()
 	if !strings.Contains(output, "Audio saved") {
-		t.Errorf("expected 'Audio saved' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Audio saved")
 	}
 }
 
@@ -501,10 +501,10 @@ func TestRunLive_RecordFails(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when recording fails")
+		t.Fatal("RunLive() with recording failure: expected error, got nil")
 	}
 	if !errors.Is(err, recordErr) {
-		t.Errorf("expected record error, got %v", err)
+		t.Errorf("RunLive() error = %v, want recordErr", err)
 	}
 }
 
@@ -570,10 +570,10 @@ func TestRunLive_TranscribeFails(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when transcription fails")
+		t.Fatal("RunLive() with transcription failure: expected error, got nil")
 	}
 	if !errors.Is(err, transcribeErr) {
-		t.Errorf("expected transcribe error, got %v", err)
+		t.Errorf("RunLive() error = %v, want transcribeErr", err)
 	}
 }
 
@@ -683,10 +683,10 @@ func TestRunLive_EmptyRecording(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error for empty recording")
+		t.Fatal("RunLive() with empty recording: expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "empty") {
-		t.Errorf("expected error about empty file, got %v", err)
+		t.Errorf("RunLive() error = %q, want containing %q", err.Error(), "empty")
 	}
 }
 
@@ -704,10 +704,10 @@ func TestLiveCmd_RequiresDuration(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error when duration not provided")
+		t.Fatal("cmd.Execute() without duration: expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "duration") {
-		t.Errorf("expected error about duration, got %v", err)
+		t.Errorf("cmd.Execute() error = %q, want containing %q", err.Error(), "duration")
 	}
 }
 
@@ -721,10 +721,10 @@ func TestLiveCmd_InvalidDuration(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error for invalid duration")
+		t.Fatal("cmd.Execute() with invalid duration: expected error, got nil")
 	}
 	if !errors.Is(err, ErrInvalidDuration) {
-		t.Errorf("expected ErrInvalidDuration, got %v", err)
+		t.Errorf("cmd.Execute() error = %v, want ErrInvalidDuration", err)
 	}
 }
 
@@ -738,10 +738,10 @@ func TestLiveCmd_MutuallyExclusiveFlags(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error for mutually exclusive flags")
+		t.Fatal("cmd.Execute() with mutually exclusive flags: expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "cannot be used") && !strings.Contains(err.Error(), "none of the others") {
-		t.Errorf("expected mutual exclusion error, got %v", err)
+		t.Errorf("cmd.Execute() error = %q, want containing mutual exclusion message", err.Error())
 	}
 }
 
@@ -825,28 +825,28 @@ func TestRunLive_WithTemplate(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunLive() unexpected error: %v", err)
 	}
 
 	// Verify template was passed correctly
 	if capturedTemplate.String() != "meeting" {
-		t.Errorf("expected template 'meeting', got %q", capturedTemplate)
+		t.Errorf("restructurer received template = %q, want %q", capturedTemplate, "meeting")
 	}
 
 	// Verify output contains restructured content
 	expectedOutput := filepath.Join(outputDir, "transcript_20260125_143052.md")
 	content, err := os.ReadFile(expectedOutput)
 	if err != nil {
-		t.Fatalf("failed to read output: %v", err)
+		t.Fatalf("os.ReadFile(%q) unexpected error: %v", expectedOutput, err)
 	}
 	if !strings.Contains(string(content), "Restructured content") {
-		t.Errorf("expected restructured content, got %q", string(content))
+		t.Errorf("output file content = %q, want containing %q", string(content), "Restructured content")
 	}
 
 	// Verify stderr mentions restructuring
 	output := stderr.String()
 	if !strings.Contains(output, "Restructuring") {
-		t.Errorf("expected 'Restructuring' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Restructuring")
 	}
 }
 
@@ -925,16 +925,16 @@ func TestRunLive_RestructureError(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error when restructuring fails")
+		t.Fatal("RunLive() with restructuring failure: expected error, got nil")
 	}
 	if !errors.Is(err, restructureErr) {
-		t.Errorf("expected restructure error, got %v", err)
+		t.Errorf("RunLive() error = %v, want restructureErr", err)
 	}
 
 	// Verify warning about audio file
 	output := stderr.String()
 	if !strings.Contains(output, "Restructuring failed") {
-		t.Errorf("expected 'Restructuring failed' warning, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Restructuring failed")
 	}
 }
 
@@ -956,21 +956,21 @@ func TestMoveFile_SameFilesystem(t *testing.T) {
 
 	err := MoveFile(src, dst)
 	if err != nil {
-		t.Fatalf("MoveFile failed: %v", err)
+		t.Fatalf("MoveFile(%q, %q) unexpected error: %v", src, dst, err)
 	}
 
 	// Source should not exist
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Error("source file should be removed after move")
+		t.Errorf("os.Stat(%q) after move: file still exists, want file removed", src)
 	}
 
 	// Destination should have content
 	readContent, err := os.ReadFile(dst)
 	if err != nil {
-		t.Fatalf("failed to read destination: %v", err)
+		t.Fatalf("os.ReadFile(%q) unexpected error: %v", dst, err)
 	}
 	if string(readContent) != string(content) {
-		t.Errorf("content mismatch: got %q, want %q", readContent, content)
+		t.Errorf("destination file content = %q, want %q", readContent, content)
 	}
 }
 
@@ -983,7 +983,7 @@ func TestMoveFile_NonexistentSource(t *testing.T) {
 
 	err := MoveFile(src, dst)
 	if err == nil {
-		t.Fatal("expected error for nonexistent source")
+		t.Fatalf("MoveFile(%q, %q) with nonexistent source: expected error, got nil", src, dst)
 	}
 }
 
@@ -1002,21 +1002,21 @@ func TestCopyFile_Success(t *testing.T) {
 
 	err := CopyFile(src, dst)
 	if err != nil {
-		t.Fatalf("CopyFile failed: %v", err)
+		t.Fatalf("CopyFile(%q, %q) unexpected error: %v", src, dst, err)
 	}
 
 	// Source should be removed (copyFile removes source after copy)
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Error("source should be removed after copyFile")
+		t.Errorf("os.Stat(%q) after copy: file still exists, want file removed", src)
 	}
 
 	// Destination should have content
 	readContent, err := os.ReadFile(dst)
 	if err != nil {
-		t.Fatalf("failed to read destination: %v", err)
+		t.Fatalf("os.ReadFile(%q) unexpected error: %v", dst, err)
 	}
 	if string(readContent) != string(content) {
-		t.Errorf("content mismatch: got %q, want %q", readContent, content)
+		t.Errorf("destination file content = %q, want %q", readContent, content)
 	}
 }
 
@@ -1029,7 +1029,7 @@ func TestCopyFile_NonexistentSource(t *testing.T) {
 
 	err := CopyFile(src, dst)
 	if err == nil {
-		t.Fatal("expected error for nonexistent source")
+		t.Fatalf("CopyFile(%q, %q) with nonexistent source: expected error, got nil", src, dst)
 	}
 }
 
@@ -1049,7 +1049,7 @@ func TestCopyFile_DestinationExists(t *testing.T) {
 
 	err := CopyFile(src, dst)
 	if err == nil {
-		t.Fatal("expected error when destination exists")
+		t.Fatalf("CopyFile(%q, %q) with existing destination: expected error, got nil", src, dst)
 	}
 }
 
@@ -1070,10 +1070,10 @@ func TestFileSize_Success(t *testing.T) {
 
 	size, err := FileSize(path)
 	if err != nil {
-		t.Fatalf("FileSize failed: %v", err)
+		t.Fatalf("FileSize(%q) unexpected error: %v", path, err)
 	}
 	if size != int64(len(content)) {
-		t.Errorf("expected size %d, got %d", len(content), size)
+		t.Errorf("FileSize(%q) = %d, want %d", path, size, len(content))
 	}
 }
 
@@ -1082,7 +1082,7 @@ func TestFileSize_NonexistentFile(t *testing.T) {
 
 	_, err := FileSize("/nonexistent/file.txt")
 	if err == nil {
-		t.Fatal("expected error for nonexistent file")
+		t.Fatalf("FileSize(%q) with nonexistent file: expected error, got nil", "/nonexistent/file.txt")
 	}
 }
 
@@ -1098,10 +1098,10 @@ func TestFileSize_EmptyFile(t *testing.T) {
 
 	size, err := FileSize(path)
 	if err != nil {
-		t.Fatalf("FileSize failed: %v", err)
+		t.Fatalf("FileSize(%q) unexpected error: %v", path, err)
 	}
 	if size != 0 {
-		t.Errorf("expected size 0, got %d", size)
+		t.Errorf("FileSize(%q) = %d, want 0", path, size)
 	}
 }
 
@@ -1123,22 +1123,22 @@ func TestLiveWritePhase_Success(t *testing.T) {
 	content := "# Test Output\n\nSome content here."
 	err := LiveWritePhase(env, outputPath, content)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("LiveWritePhase(%q, %q) unexpected error: %v", outputPath, content, err)
 	}
 
 	// Verify file was created with correct content
 	readContent, err := os.ReadFile(outputPath)
 	if err != nil {
-		t.Fatalf("failed to read output: %v", err)
+		t.Fatalf("os.ReadFile(%q) unexpected error: %v", outputPath, err)
 	}
 	if string(readContent) != content {
-		t.Errorf("content mismatch: got %q, want %q", readContent, content)
+		t.Errorf("output file content = %q, want %q", readContent, content)
 	}
 
 	// Verify success message
 	output := stderr.String()
 	if !strings.Contains(output, "Done") {
-		t.Errorf("expected 'Done' in output, got %q", output)
+		t.Errorf("stderr output = %q, want containing %q", output, "Done")
 	}
 }
 
@@ -1159,10 +1159,10 @@ func TestLiveWritePhase_OutputExists(t *testing.T) {
 
 	err := LiveWritePhase(env, outputPath, "new content")
 	if err == nil {
-		t.Fatal("expected error for existing output file")
+		t.Fatal("LiveWritePhase() with existing output file: expected error, got nil")
 	}
 	if !errors.Is(err, ErrOutputExists) {
-		t.Errorf("expected ErrOutputExists, got %v", err)
+		t.Errorf("LiveWritePhase() error = %v, want ErrOutputExists", err)
 	}
 }
 
@@ -1176,7 +1176,7 @@ func TestLiveWritePhase_InvalidPath(t *testing.T) {
 	// Try to write to a path in a nonexistent directory
 	err := LiveWritePhase(env, "/nonexistent/dir/output.md", "content")
 	if err == nil {
-		t.Fatal("expected error for invalid path")
+		t.Fatal("LiveWritePhase() with invalid path: expected error, got nil")
 	}
 }
 
@@ -1211,10 +1211,10 @@ func TestRunLive_DeepSeekProvider_MissingKey(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err == nil {
-		t.Fatal("expected error for missing DeepSeek API key")
+		t.Fatal("RunLive() with missing DeepSeek API key: expected error, got nil")
 	}
 	if !errors.Is(err, ErrDeepSeekKeyMissing) {
-		t.Errorf("expected ErrDeepSeekKeyMissing, got %v", err)
+		t.Errorf("RunLive() error = %v, want ErrDeepSeekKeyMissing", err)
 	}
 }
 
@@ -1298,7 +1298,7 @@ func TestRunLive_OpenAIProvider_ReusesKey(t *testing.T) {
 	// Use OpenAI provider - should NOT require DeepSeek key
 	err := RunLive(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error with OpenAI provider, got %v", err)
+		t.Fatalf("RunLive() with OpenAI provider unexpected error: %v", err)
 	}
 }
 
@@ -1375,16 +1375,16 @@ func TestRunLive_ProviderPassedToFactory(t *testing.T) {
 
 	err := RunLive(context.Background(), env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunLive() unexpected error: %v", err)
 	}
 
 	// Verify the correct provider was passed to the factory
 	calls := restructurerFactory.NewMapReducerCalls()
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 NewMapReducer call, got %d", len(calls))
+		t.Fatalf("NewMapReducer call count = %d, want 1", len(calls))
 	}
 	if calls[0].Provider != DeepSeekProvider {
-		t.Errorf("expected provider %q, got %q", DeepSeekProvider, calls[0].Provider)
+		t.Errorf("NewMapReducer provider = %q, want %q", calls[0].Provider, DeepSeekProvider)
 	}
 }
 
@@ -1408,13 +1408,13 @@ func TestRunLive_NonMdExtensionWarning(t *testing.T) {
 	}
 
 	if err := RunLive(context.Background(), env, opts); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunLive() unexpected error: %v", err)
 	}
 
 	// Verify warning was emitted
 	output := getStderr()
 	if !strings.Contains(output, "Warning") || !strings.Contains(output, ".txt") {
-		t.Errorf("expected warning about .txt extension, got: %q", output)
+		t.Errorf("stderr output = %q, want containing %q and %q", output, "Warning", ".txt")
 	}
 }
 
@@ -1434,11 +1434,11 @@ func TestRunLive_MdExtensionNoWarning(t *testing.T) {
 	}
 
 	if err := RunLive(context.Background(), env, opts); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunLive() unexpected error: %v", err)
 	}
 
 	// Verify NO warning about extension
 	if strings.Contains(getStderr(), "regardless") {
-		t.Errorf("unexpected extension warning for .md file: %q", getStderr())
+		t.Errorf("stderr output = %q, want not containing extension warning", getStderr())
 	}
 }

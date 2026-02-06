@@ -11,56 +11,56 @@ import (
 // Tests for DefaultEnv
 // ---------------------------------------------------------------------------
 
-func TestDefaultEnv_ReturnsValidEnv(t *testing.T) {
+func TestDefaultEnvReturnsValidEnv(t *testing.T) {
 	t.Parallel()
 
 	env := DefaultEnv()
 
 	if env == nil {
-		t.Fatal("DefaultEnv should not return nil")
+		t.Fatal("DefaultEnv() returned nil")
 	}
 
 	// Verify all fields are set
 	if env.Stderr == nil {
-		t.Error("Stderr should be set")
+		t.Error("DefaultEnv() Stderr = nil, want non-nil")
 	}
 	if env.Getenv == nil {
-		t.Error("Getenv should be set")
+		t.Error("DefaultEnv() Getenv = nil, want non-nil")
 	}
 	if env.Now == nil {
-		t.Error("Now should be set")
+		t.Error("DefaultEnv() Now = nil, want non-nil")
 	}
 	if env.FFmpegResolver == nil {
-		t.Error("FFmpegResolver should be set")
+		t.Error("DefaultEnv() FFmpegResolver = nil, want non-nil")
 	}
 	if env.ConfigLoader == nil {
-		t.Error("ConfigLoader should be set")
+		t.Error("DefaultEnv() ConfigLoader = nil, want non-nil")
 	}
 	if env.TranscriberFactory == nil {
-		t.Error("TranscriberFactory should be set")
+		t.Error("DefaultEnv() TranscriberFactory = nil, want non-nil")
 	}
 	if env.RestructurerFactory == nil {
-		t.Error("RestructurerFactory should be set")
+		t.Error("DefaultEnv() RestructurerFactory = nil, want non-nil")
 	}
 	if env.ChunkerFactory == nil {
-		t.Error("ChunkerFactory should be set")
+		t.Error("DefaultEnv() ChunkerFactory = nil, want non-nil")
 	}
 	if env.RecorderFactory == nil {
-		t.Error("RecorderFactory should be set")
+		t.Error("DefaultEnv() RecorderFactory = nil, want non-nil")
 	}
 }
 
-func TestDefaultEnv_StderrIsOsStderr(t *testing.T) {
+func TestDefaultEnvStderrIsOsStderr(t *testing.T) {
 	t.Parallel()
 
 	env := DefaultEnv()
 
 	if env.Stderr != os.Stderr {
-		t.Error("Stderr should be os.Stderr by default")
+		t.Errorf("DefaultEnv() Stderr = %v, want os.Stderr", env.Stderr)
 	}
 }
 
-func TestDefaultEnv_GetenvUsesOsGetenv(t *testing.T) {
+func TestDefaultEnvGetenvUsesOsGetenv(t *testing.T) {
 	// Cannot use t.Parallel() with t.Setenv()
 
 	testKey := "GO_TRANSCRIPT_TEST_KEY_12345"
@@ -71,11 +71,11 @@ func TestDefaultEnv_GetenvUsesOsGetenv(t *testing.T) {
 
 	result := env.Getenv(testKey)
 	if result != testValue {
-		t.Errorf("Getenv should use os.Getenv, got %q, want %q", result, testValue)
+		t.Errorf("DefaultEnv().Getenv(%q) = %q, want %q", testKey, result, testValue)
 	}
 }
 
-func TestDefaultEnv_NowReturnsCurrentTime(t *testing.T) {
+func TestDefaultEnvNowReturnsCurrentTime(t *testing.T) {
 	t.Parallel()
 
 	env := DefaultEnv()
@@ -85,7 +85,7 @@ func TestDefaultEnv_NowReturnsCurrentTime(t *testing.T) {
 	after := time.Now()
 
 	if result.Before(before) || result.After(after) {
-		t.Errorf("Now() should return current time, got %v (expected between %v and %v)", result, before, after)
+		t.Errorf("DefaultEnv().Now() = %v, want time between %v and %v", result, before, after)
 	}
 }
 
@@ -93,18 +93,18 @@ func TestDefaultEnv_NowReturnsCurrentTime(t *testing.T) {
 // Tests for NewEnv with options
 // ---------------------------------------------------------------------------
 
-func TestNewEnv_WithStderr(t *testing.T) {
+func TestNewEnvWithStderr(t *testing.T) {
 	t.Parallel()
 
 	buf := &bytes.Buffer{}
 	env := NewEnv(WithStderr(buf))
 
 	if env.Stderr != buf {
-		t.Error("WithStderr should set custom stderr")
+		t.Errorf("NewEnv(WithStderr(buf)) Stderr = %v, want %v", env.Stderr, buf)
 	}
 }
 
-func TestNewEnv_WithGetenv(t *testing.T) {
+func TestNewEnvWithGetenv(t *testing.T) {
 	t.Parallel()
 
 	customGetenv := func(key string) string {
@@ -118,11 +118,11 @@ func TestNewEnv_WithGetenv(t *testing.T) {
 
 	result := env.Getenv("TEST")
 	if result != "custom_value" {
-		t.Errorf("WithGetenv should set custom getenv, got %q", result)
+		t.Errorf("NewEnv(WithGetenv(customGetenv)).Getenv(%q) = %q, want %q", "TEST", result, "custom_value")
 	}
 }
 
-func TestNewEnv_WithNow(t *testing.T) {
+func TestNewEnvWithNow(t *testing.T) {
 	t.Parallel()
 
 	fixedTime := time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC)
@@ -134,77 +134,77 @@ func TestNewEnv_WithNow(t *testing.T) {
 
 	result := env.Now()
 	if !result.Equal(fixedTime) {
-		t.Errorf("WithNow should set custom time provider, got %v, want %v", result, fixedTime)
+		t.Errorf("NewEnv(WithNow(customNow)).Now() = %v, want %v", result, fixedTime)
 	}
 }
 
-func TestNewEnv_WithFFmpegResolver(t *testing.T) {
+func TestNewEnvWithFFmpegResolver(t *testing.T) {
 	t.Parallel()
 
 	resolver := &mockFFmpegResolver{}
 	env := NewEnv(WithFFmpegResolver(resolver))
 
 	if env.FFmpegResolver != resolver {
-		t.Error("WithFFmpegResolver should set custom resolver")
+		t.Errorf("NewEnv(WithFFmpegResolver(resolver)) FFmpegResolver = %v, want %v", env.FFmpegResolver, resolver)
 	}
 }
 
-func TestNewEnv_WithConfigLoader(t *testing.T) {
+func TestNewEnvWithConfigLoader(t *testing.T) {
 	t.Parallel()
 
 	loader := &mockConfigLoader{}
 	env := NewEnv(WithConfigLoader(loader))
 
 	if env.ConfigLoader != loader {
-		t.Error("WithConfigLoader should set custom loader")
+		t.Errorf("NewEnv(WithConfigLoader(loader)) ConfigLoader = %v, want %v", env.ConfigLoader, loader)
 	}
 }
 
-func TestNewEnv_WithTranscriberFactory(t *testing.T) {
+func TestNewEnvWithTranscriberFactory(t *testing.T) {
 	t.Parallel()
 
 	factory := &mockTranscriberFactory{}
 	env := NewEnv(WithTranscriberFactory(factory))
 
 	if env.TranscriberFactory != factory {
-		t.Error("WithTranscriberFactory should set custom factory")
+		t.Errorf("NewEnv(WithTranscriberFactory(factory)) TranscriberFactory = %v, want %v", env.TranscriberFactory, factory)
 	}
 }
 
-func TestNewEnv_WithRestructurerFactory(t *testing.T) {
+func TestNewEnvWithRestructurerFactory(t *testing.T) {
 	t.Parallel()
 
 	factory := &mockRestructurerFactory{}
 	env := NewEnv(WithRestructurerFactory(factory))
 
 	if env.RestructurerFactory != factory {
-		t.Error("WithRestructurerFactory should set custom factory")
+		t.Errorf("NewEnv(WithRestructurerFactory(factory)) RestructurerFactory = %v, want %v", env.RestructurerFactory, factory)
 	}
 }
 
-func TestNewEnv_WithChunkerFactory(t *testing.T) {
+func TestNewEnvWithChunkerFactory(t *testing.T) {
 	t.Parallel()
 
 	factory := &mockChunkerFactory{}
 	env := NewEnv(WithChunkerFactory(factory))
 
 	if env.ChunkerFactory != factory {
-		t.Error("WithChunkerFactory should set custom factory")
+		t.Errorf("NewEnv(WithChunkerFactory(factory)) ChunkerFactory = %v, want %v", env.ChunkerFactory, factory)
 	}
 }
 
-func TestNewEnv_WithRecorderFactory(t *testing.T) {
+func TestNewEnvWithRecorderFactory(t *testing.T) {
 	t.Parallel()
 
 	factory := &mockRecorderFactory{}
 	env := NewEnv(WithRecorderFactory(factory))
 
 	if env.RecorderFactory != factory {
-		t.Error("WithRecorderFactory should set custom factory")
+		t.Errorf("NewEnv(WithRecorderFactory(factory)) RecorderFactory = %v, want %v", env.RecorderFactory, factory)
 	}
 }
 
-func TestNewEnv_MultipleOptions(t *testing.T) {
+func TestNewEnvMultipleOptions(t *testing.T) {
 	t.Parallel()
 
 	buf := &bytes.Buffer{}
@@ -218,17 +218,17 @@ func TestNewEnv_MultipleOptions(t *testing.T) {
 	)
 
 	if env.Stderr != buf {
-		t.Error("Stderr should be set")
+		t.Errorf("NewEnv(...) Stderr = %v, want %v", env.Stderr, buf)
 	}
 	if env.Getenv("any") != "custom" {
-		t.Error("Getenv should be set")
+		t.Errorf("NewEnv(...).Getenv(%q) = %q, want %q", "any", env.Getenv("any"), "custom")
 	}
 	if !env.Now().Equal(fixedTime) {
-		t.Error("Now should be set")
+		t.Errorf("NewEnv(...).Now() = %v, want %v", env.Now(), fixedTime)
 	}
 }
 
-func TestNewEnv_OptionsOverrideDefaults(t *testing.T) {
+func TestNewEnvOptionsOverrideDefaults(t *testing.T) {
 	t.Parallel()
 
 	buf := &bytes.Buffer{}
@@ -236,28 +236,28 @@ func TestNewEnv_OptionsOverrideDefaults(t *testing.T) {
 
 	// Custom option should override default
 	if env.Stderr != buf {
-		t.Error("custom stderr should override default")
+		t.Errorf("NewEnv(WithStderr(buf)) Stderr = %v, want %v", env.Stderr, buf)
 	}
 
 	// Other defaults should still be set
 	if env.Getenv == nil {
-		t.Error("Getenv should still have default")
+		t.Error("NewEnv(WithStderr(buf)) Getenv = nil, want non-nil")
 	}
 	if env.FFmpegResolver == nil {
-		t.Error("FFmpegResolver should still have default")
+		t.Error("NewEnv(WithStderr(buf)) FFmpegResolver = nil, want non-nil")
 	}
 }
 
-func TestNewEnv_NoOptions(t *testing.T) {
+func TestNewEnvNoOptions(t *testing.T) {
 	t.Parallel()
 
 	env := NewEnv()
 
 	// Should behave like DefaultEnv
 	if env.Stderr == nil {
-		t.Error("Stderr should be set even with no options")
+		t.Error("NewEnv() Stderr = nil, want non-nil")
 	}
 	if env.FFmpegResolver == nil {
-		t.Error("FFmpegResolver should be set even with no options")
+		t.Error("NewEnv() FFmpegResolver = nil, want non-nil")
 	}
 }

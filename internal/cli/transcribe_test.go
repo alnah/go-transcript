@@ -234,10 +234,10 @@ func TestRunTranscribe_FileNotFound(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, "/nonexistent/file.ogg", "", "", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for nonexistent file")
+		t.Fatal("RunTranscribe() expected error for nonexistent file")
 	}
 	if !errors.Is(err, ErrFileNotFound) {
-		t.Errorf("expected ErrFileNotFound, got %v", err)
+		t.Errorf("RunTranscribe() error = %v, want ErrFileNotFound", err)
 	}
 }
 
@@ -253,10 +253,10 @@ func TestRunTranscribe_UnsupportedFormat(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for unsupported format")
+		t.Fatal("RunTranscribe() expected error for unsupported format")
 	}
 	if !errors.Is(err, ErrUnsupportedFormat) {
-		t.Errorf("expected ErrUnsupportedFormat, got %v", err)
+		t.Errorf("RunTranscribe() error = %v, want ErrUnsupportedFormat", err)
 	}
 }
 
@@ -273,10 +273,10 @@ func TestRunTranscribe_OutputLangRequiresTemplate(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "en", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error when --translate without template")
+		t.Fatal("RunTranscribe() expected error when --translate without template")
 	}
 	if !strings.Contains(err.Error(), "translate") || !strings.Contains(err.Error(), "template") {
-		t.Errorf("expected translate/template error, got %v", err)
+		t.Errorf("RunTranscribe() error = %q, want containing %q and %q", err.Error(), "translate", "template")
 	}
 }
 
@@ -298,10 +298,10 @@ func TestRunTranscribe_MissingAPIKey(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for missing API key")
+		t.Fatal("RunTranscribe() expected error for missing API key")
 	}
 	if !errors.Is(err, ErrAPIKeyMissing) {
-		t.Errorf("expected ErrAPIKeyMissing, got %v", err)
+		t.Errorf("RunTranscribe() error = %v, want ErrAPIKeyMissing", err)
 	}
 }
 
@@ -329,10 +329,10 @@ func TestRunTranscribe_FFmpegResolveFails(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error when ffmpeg not found")
+		t.Fatal("RunTranscribe() expected error when ffmpeg not found")
 	}
 	if !errors.Is(err, ffmpegErr) {
-		t.Errorf("expected ffmpeg error, got %v", err)
+		t.Errorf("RunTranscribe() error = %v, want ffmpegErr", err)
 	}
 }
 
@@ -368,10 +368,10 @@ func TestRunTranscribe_ChunkerFails(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error when chunker fails")
+		t.Fatal("RunTranscribe() expected error when chunker fails")
 	}
 	if !errors.Is(err, chunkerErr) {
-		t.Errorf("expected chunker error, got %v", err)
+		t.Errorf("RunTranscribe() error = %v, want chunkerErr", err)
 	}
 }
 
@@ -428,28 +428,28 @@ func TestRunTranscribe_Success(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	// Verify output file was created
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
-		t.Fatalf("failed to read output file: %v", err)
+		t.Fatalf("os.ReadFile() unexpected error: %v", err)
 	}
 	if string(content) != "This is the transcribed text." {
-		t.Errorf("expected transcribed text, got %q", string(content))
+		t.Errorf("output file content = %q, want %q", string(content), "This is the transcribed text.")
 	}
 
 	// Verify stderr contains progress messages
 	output := stderr.String()
 	if !strings.Contains(output, "Detecting silences") {
-		t.Errorf("expected 'Detecting silences' in output, got %q", output)
+		t.Errorf("stderr = %q, want containing %q", output, "Detecting silences")
 	}
 	if !strings.Contains(output, "Transcribing") {
-		t.Errorf("expected 'Transcribing' in output, got %q", output)
+		t.Errorf("stderr = %q, want containing %q", output, "Transcribing")
 	}
 	if !strings.Contains(output, "Done") {
-		t.Errorf("expected 'Done' in output, got %q", output)
+		t.Errorf("stderr = %q, want containing %q", output, "Done")
 	}
 }
 
@@ -508,10 +508,10 @@ func TestRunTranscribe_OutputExists(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for existing output file")
+		t.Fatal("RunTranscribe() expected error for existing output file")
 	}
 	if !errors.Is(err, ErrOutputExists) {
-		t.Errorf("expected ErrOutputExists, got %v", err)
+		t.Errorf("RunTranscribe() error = %v, want ErrOutputExists", err)
 	}
 }
 
@@ -566,11 +566,11 @@ func TestRunTranscribe_WithLanguage(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "fr", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	if capturedOpts.Language.String() != "fr" {
-		t.Errorf("expected language 'fr', got %q", capturedOpts.Language.String())
+		t.Errorf("transcribe options Language = %q, want %q", capturedOpts.Language.String(), "fr")
 	}
 }
 
@@ -625,11 +625,11 @@ func TestRunTranscribe_WithDiarize(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", true, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	if !capturedOpts.Diarize {
-		t.Error("expected diarize to be true")
+		t.Error("transcribe options Diarize = false, want true")
 	}
 }
 
@@ -692,13 +692,13 @@ func TestRunTranscribe_DefaultOutputPath(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, "", "", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	// Verify output was created with expected name
 	expectedPath := filepath.Join(outputDir, "meeting.md")
 	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
-		t.Errorf("expected output file at %s", expectedPath)
+		t.Errorf("os.Stat(%q) file does not exist", expectedPath)
 	}
 }
 
@@ -714,18 +714,18 @@ func TestRunTranscribe_NonMdExtensionWarning(t *testing.T) {
 	outputPath := filepath.Join(outputDir, "output.txt")
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
 	if err := RunTranscribe(cmd, env, opts); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	// Verify warning was emitted
 	output := getStderr()
 	if !strings.Contains(output, "Warning") || !strings.Contains(output, ".txt") {
-		t.Errorf("expected warning about .txt extension, got: %q", output)
+		t.Errorf("stderr = %q, want containing %q and %q", output, "Warning", ".txt")
 	}
 
 	// Verify file was still created (extension preserved as user specified)
 	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
-		t.Errorf("expected output file at %s", outputPath)
+		t.Errorf("os.Stat(%q) file does not exist", outputPath)
 	}
 }
 
@@ -741,12 +741,12 @@ func TestRunTranscribe_MdExtensionNoWarning(t *testing.T) {
 	outputPath := filepath.Join(outputDir, "output.md")
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "", false, 5, "", "", "deepseek")
 	if err := RunTranscribe(cmd, env, opts); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	// Verify NO warning about extension
 	if strings.Contains(getStderr(), "regardless") {
-		t.Errorf("unexpected extension warning for .md file: %q", getStderr())
+		t.Errorf("stderr = %q, should not contain extension warning", getStderr())
 	}
 }
 
@@ -764,7 +764,7 @@ func TestTranscribeCmd_RequiresFile(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error when file not provided")
+		t.Fatal("cmd.Execute() expected error when file not provided")
 	}
 }
 
@@ -780,10 +780,10 @@ func TestTranscribeCmd_ValidatesFormat(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error for unsupported format")
+		t.Fatal("cmd.Execute() expected error for unsupported format")
 	}
 	if !errors.Is(err, ErrUnsupportedFormat) {
-		t.Errorf("expected ErrUnsupportedFormat, got %v", err)
+		t.Errorf("cmd.Execute() error = %v, want ErrUnsupportedFormat", err)
 	}
 }
 
@@ -857,27 +857,27 @@ func TestRunTranscribe_WithTemplate(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	// Verify restructurer was called with correct template
 	if capturedTemplate.String() != "brainstorm" {
-		t.Errorf("expected template 'brainstorm', got %q", capturedTemplate)
+		t.Errorf("restructurer template = %q, want %q", capturedTemplate, "brainstorm")
 	}
 
 	// Verify output file contains restructured content
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
-		t.Fatalf("failed to read output file: %v", err)
+		t.Fatalf("os.ReadFile() unexpected error: %v", err)
 	}
 	if !strings.Contains(string(content), "Restructured Output") {
-		t.Errorf("expected restructured content, got %q", string(content))
+		t.Errorf("output file content = %q, want containing %q", string(content), "Restructured Output")
 	}
 
 	// Verify stderr contains restructuring message
 	output := stderr.String()
 	if !strings.Contains(output, "Restructuring") {
-		t.Errorf("expected 'Restructuring' in output, got %q", output)
+		t.Errorf("stderr = %q, want containing %q", output, "Restructuring")
 	}
 }
 
@@ -942,12 +942,12 @@ func TestRunTranscribe_WithTemplateAndLanguages(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "meeting", false, 5, "fr", "en", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	// Output language should be "en" (explicitly specified)
 	if capturedLang.String() != "en" {
-		t.Errorf("expected output lang 'en', got %q", capturedLang.String())
+		t.Errorf("restructurer output language = %q, want %q", capturedLang.String(), "en")
 	}
 }
 
@@ -1012,12 +1012,12 @@ func TestRunTranscribe_WithTemplateInheritLanguage(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "meeting", false, 5, "fr", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	// Output language should be "fr" (inherited from input)
 	if capturedLang.String() != "fr" {
-		t.Errorf("expected output lang 'fr' (inherited), got %q", capturedLang.String())
+		t.Errorf("restructurer output language = %q, want %q (inherited from input)", capturedLang.String(), "fr")
 	}
 }
 
@@ -1080,10 +1080,10 @@ func TestRunTranscribe_RestructureError(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error when restructuring fails")
+		t.Fatal("RunTranscribe() expected error when restructuring fails")
 	}
 	if !errors.Is(err, restructureErr) {
-		t.Errorf("expected restructure error, got %v", err)
+		t.Errorf("RunTranscribe() error = %v, want restructureErr", err)
 	}
 }
 
@@ -1148,12 +1148,12 @@ func TestRunTranscribe_EmptyTranscriptSkipsRestructure(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	// Restructure should NOT be called for empty transcript
 	if restructureCalled {
-		t.Error("restructure should not be called for empty/whitespace transcript")
+		t.Error("restructure called = true, want false for empty/whitespace transcript")
 	}
 }
 
@@ -1164,7 +1164,7 @@ func TestRunTranscribe_EmptyTranscriptSkipsRestructure(t *testing.T) {
 func TestRunTranscribe_ValidationOrder(t *testing.T) {
 	t.Parallel()
 
-	t.Run("file_not_found_first", func(t *testing.T) {
+	t.Run("file not found first", func(t *testing.T) {
 		t.Parallel()
 
 		env, _ := testEnv()
@@ -1173,14 +1173,14 @@ func TestRunTranscribe_ValidationOrder(t *testing.T) {
 		opts := mustParseTranscribeOptions(t, "/nonexistent/path.ogg", "", "", false, 5, "", "", "deepseek")
 		err := RunTranscribe(cmd, env, opts)
 		if err == nil {
-			t.Fatal("expected error")
+			t.Fatal("RunTranscribe() expected error")
 		}
 		if !errors.Is(err, ErrFileNotFound) {
-			t.Errorf("expected ErrFileNotFound, got %v", err)
+			t.Errorf("RunTranscribe() error = %v, want ErrFileNotFound", err)
 		}
 	})
 
-	t.Run("format_check_before_api_key", func(t *testing.T) {
+	t.Run("format check before api key", func(t *testing.T) {
 		t.Parallel()
 
 		// Create file with bad extension
@@ -1197,15 +1197,15 @@ func TestRunTranscribe_ValidationOrder(t *testing.T) {
 		opts := mustParseTranscribeOptions(t, path, "", "", false, 5, "", "", "deepseek")
 		err := RunTranscribe(cmd, env, opts)
 		if err == nil {
-			t.Fatal("expected error")
+			t.Fatal("RunTranscribe() expected error")
 		}
 		// Format error should come before API key error
 		if !errors.Is(err, ErrUnsupportedFormat) {
-			t.Errorf("expected ErrUnsupportedFormat, got %v", err)
+			t.Errorf("RunTranscribe() error = %v, want ErrUnsupportedFormat", err)
 		}
 	})
 
-	t.Run("output_lang_requires_template", func(t *testing.T) {
+	t.Run("output lang requires template", func(t *testing.T) {
 		t.Parallel()
 
 		path := createTestAudioFile(t, "audio.ogg")
@@ -1221,15 +1221,15 @@ func TestRunTranscribe_ValidationOrder(t *testing.T) {
 		opts := mustParseTranscribeOptions(t, path, "", "", false, 5, "", "en", "deepseek")
 		err := RunTranscribe(cmd, env, opts)
 		if err == nil {
-			t.Fatal("expected error")
+			t.Fatal("RunTranscribe() expected error")
 		}
 		// Should fail with translate requires template error before API key check
 		if !strings.Contains(err.Error(), "translate") {
-			t.Errorf("expected translate error, got %v", err)
+			t.Errorf("RunTranscribe() error = %q, want containing %q", err.Error(), "translate")
 		}
 	})
 
-	t.Run("api_key_check_last", func(t *testing.T) {
+	t.Run("api key check last", func(t *testing.T) {
 		t.Parallel()
 
 		path := createTestAudioFile(t, "audio.ogg")
@@ -1245,10 +1245,10 @@ func TestRunTranscribe_ValidationOrder(t *testing.T) {
 		opts := mustParseTranscribeOptions(t, path, "", "", false, 5, "", "", "deepseek")
 		err := RunTranscribe(cmd, env, opts)
 		if err == nil {
-			t.Fatal("expected error")
+			t.Fatal("RunTranscribe() expected error")
 		}
 		if !errors.Is(err, ErrAPIKeyMissing) {
-			t.Errorf("expected ErrAPIKeyMissing, got %v", err)
+			t.Errorf("RunTranscribe() error = %v, want ErrAPIKeyMissing", err)
 		}
 	})
 }
@@ -1283,10 +1283,10 @@ func TestRunTranscribe_DeepSeekProvider_MissingKey(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err == nil {
-		t.Fatal("expected error for missing DeepSeek API key")
+		t.Fatal("RunTranscribe() expected error for missing DeepSeek API key")
 	}
 	if !errors.Is(err, ErrDeepSeekKeyMissing) {
-		t.Errorf("expected ErrDeepSeekKeyMissing, got %v", err)
+		t.Errorf("RunTranscribe() error = %v, want ErrDeepSeekKeyMissing", err)
 	}
 }
 
@@ -1355,7 +1355,7 @@ func TestRunTranscribe_OpenAIProvider_ReusesKey(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "openai")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error with OpenAI provider, got %v", err)
+		t.Fatalf("RunTranscribe() with OpenAI provider unexpected error: %v", err)
 	}
 }
 
@@ -1417,15 +1417,15 @@ func TestRunTranscribe_ProviderPassedToFactory(t *testing.T) {
 	opts := mustParseTranscribeOptions(t, inputPath, outputPath, "brainstorm", false, 5, "", "", "deepseek")
 	err := RunTranscribe(cmd, env, opts)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunTranscribe() unexpected error: %v", err)
 	}
 
 	// Verify the correct provider was passed to the factory
 	calls := restructurerFactory.NewMapReducerCalls()
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 NewMapReducer call, got %d", len(calls))
+		t.Fatalf("NewMapReducer call count = %d, want 1", len(calls))
 	}
 	if calls[0].Provider != DeepSeekProvider {
-		t.Errorf("expected provider %q, got %q", DeepSeekProvider, calls[0].Provider)
+		t.Errorf("NewMapReducer provider = %q, want %q", calls[0].Provider, DeepSeekProvider)
 	}
 }

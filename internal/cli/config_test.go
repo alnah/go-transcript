@@ -21,10 +21,10 @@ func TestIsValidConfigKey(t *testing.T) {
 		key      string
 		expected bool
 	}{
-		{"valid_output_dir", config.KeyOutputDir, true},
-		{"invalid_random", "random-key", false},
-		{"invalid_empty", "", false},
-		{"invalid_similar", "output_dir", false}, // Wrong format (underscore vs dash)
+		{"valid output dir", config.KeyOutputDir, true},
+		{"invalid random key", "random-key", false},
+		{"empty string", "", false},
+		{"wrong format with underscore", "output_dir", false}, // Wrong format (underscore vs dash)
 	}
 
 	for _, tt := range tests {
@@ -76,22 +76,22 @@ func TestRunConfigSet_ValidKey(t *testing.T) {
 
 	err := RunConfigSet(env, config.KeyOutputDir, outputDir)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunConfigSet(%q, %q) unexpected error: %v", config.KeyOutputDir, outputDir, err)
 	}
 
 	// Verify success message
 	output := stderr.String()
 	if !strings.Contains(output, "Set") || !strings.Contains(output, config.KeyOutputDir) {
-		t.Errorf("expected 'Set output-dir' in output, got %q", output)
+		t.Errorf("RunConfigSet(%q, %q) output = %q, want containing 'Set output-dir'", config.KeyOutputDir, outputDir, output)
 	}
 
 	// Verify config was saved
 	cfg, err := config.Load()
 	if err != nil {
-		t.Fatalf("failed to load config: %v", err)
+		t.Fatalf("config.Load() unexpected error: %v", err)
 	}
 	if cfg.OutputDir != outputDir {
-		t.Errorf("expected output-dir %q, got %q", outputDir, cfg.OutputDir)
+		t.Errorf("config.Load().OutputDir = %q, want %q", cfg.OutputDir, outputDir)
 	}
 }
 
@@ -104,10 +104,10 @@ func TestRunConfigSet_InvalidKey(t *testing.T) {
 
 	err := RunConfigSet(env, "invalid-key", "value")
 	if err == nil {
-		t.Fatal("expected error for invalid key")
+		t.Fatal("RunConfigSet(\"invalid-key\", \"value\") expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "unknown") {
-		t.Errorf("expected 'unknown' in error, got %v", err)
+		t.Errorf("RunConfigSet(\"invalid-key\", \"value\") error = %q, want containing %q", err.Error(), "unknown")
 	}
 }
 
@@ -128,17 +128,17 @@ func TestRunConfigSet_ExpandsPath(t *testing.T) {
 
 	err := RunConfigSet(env, config.KeyOutputDir, testDir)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunConfigSet(%q, %q) unexpected error: %v", config.KeyOutputDir, testDir, err)
 	}
 
 	// Verify path was stored
 	cfg, err := config.Load()
 	if err != nil {
-		t.Fatalf("failed to load config: %v", err)
+		t.Fatalf("config.Load() unexpected error: %v", err)
 	}
 	// Path should be absolute
 	if !filepath.IsAbs(cfg.OutputDir) {
-		t.Errorf("expected absolute path, got %q", cfg.OutputDir)
+		t.Errorf("config.Load().OutputDir = %q, want absolute path", cfg.OutputDir)
 	}
 }
 
@@ -151,7 +151,7 @@ func TestRunConfigSet_InvalidOutputDir(t *testing.T) {
 	// Create a file (not directory) to cause validation failure
 	filePath := filepath.Join(t.TempDir(), "not-a-dir")
 	if err := os.WriteFile(filePath, []byte("file"), 0644); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
+		t.Fatalf("os.WriteFile(%q) unexpected error: %v", filePath, err)
 	}
 
 	env := &Env{
@@ -161,10 +161,10 @@ func TestRunConfigSet_InvalidOutputDir(t *testing.T) {
 
 	err := RunConfigSet(env, config.KeyOutputDir, filePath)
 	if err == nil {
-		t.Fatal("expected error for file as output-dir")
+		t.Fatalf("RunConfigSet(%q, %q) expected error, got nil", config.KeyOutputDir, filePath)
 	}
 	if !strings.Contains(err.Error(), "invalid output-dir") {
-		t.Errorf("expected 'invalid output-dir' error, got %v", err)
+		t.Errorf("RunConfigSet(%q, %q) error = %q, want containing %q", config.KeyOutputDir, filePath, err.Error(), "invalid output-dir")
 	}
 }
 
@@ -181,7 +181,7 @@ func TestRunConfigGet_ValidKey(t *testing.T) {
 	// Set a value first
 	outputDir := t.TempDir()
 	if err := config.Save(config.KeyOutputDir, outputDir); err != nil {
-		t.Fatalf("failed to save config: %v", err)
+		t.Fatalf("config.Save(%q, %q) unexpected error: %v", config.KeyOutputDir, outputDir, err)
 	}
 
 	env := &Env{
@@ -193,7 +193,7 @@ func TestRunConfigGet_ValidKey(t *testing.T) {
 	// Since we can't easily capture stdout in unit tests, we just verify no error
 	err := RunConfigGet(env, config.KeyOutputDir)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunConfigGet(%q) unexpected error: %v", config.KeyOutputDir, err)
 	}
 }
 
@@ -207,10 +207,10 @@ func TestRunConfigGet_InvalidKey(t *testing.T) {
 
 	err := RunConfigGet(env, "invalid-key")
 	if err == nil {
-		t.Fatal("expected error for invalid key")
+		t.Fatal("RunConfigGet(\"invalid-key\") expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "unknown") {
-		t.Errorf("expected 'unknown' in error, got %v", err)
+		t.Errorf("RunConfigGet(\"invalid-key\") error = %q, want containing %q", err.Error(), "unknown")
 	}
 }
 
@@ -232,7 +232,7 @@ func TestRunConfigGet_EnvFallback(t *testing.T) {
 	// No config file - should use env fallback
 	err := RunConfigGet(env, config.KeyOutputDir)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunConfigGet(%q) unexpected error: %v", config.KeyOutputDir, err)
 	}
 	// We can't easily verify the output, but the function should succeed
 }
@@ -250,7 +250,7 @@ func TestRunConfigList_WithConfig(t *testing.T) {
 	// Set a value first
 	outputDir := t.TempDir()
 	if err := config.Save(config.KeyOutputDir, outputDir); err != nil {
-		t.Fatalf("failed to save config: %v", err)
+		t.Fatalf("config.Save(%q, %q) unexpected error: %v", config.KeyOutputDir, outputDir, err)
 	}
 
 	env := &Env{
@@ -260,7 +260,7 @@ func TestRunConfigList_WithConfig(t *testing.T) {
 
 	err := RunConfigList(env)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunConfigList() unexpected error: %v", err)
 	}
 }
 
@@ -277,7 +277,7 @@ func TestRunConfigList_EmptyConfig(t *testing.T) {
 
 	err := RunConfigList(env)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunConfigList() unexpected error: %v", err)
 	}
 }
 
@@ -298,7 +298,7 @@ func TestRunConfigList_WithEnvOverride(t *testing.T) {
 
 	err := RunConfigList(env)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("RunConfigList() unexpected error: %v", err)
 	}
 }
 
@@ -336,7 +336,7 @@ func TestConfigCmd_SetRequiresArgs(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error when args missing")
+		t.Fatal("ConfigCmd.Execute() with args [\"set\"] expected error, got nil")
 	}
 }
 
@@ -350,7 +350,7 @@ func TestConfigCmd_SetRequiresTwoArgs(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error when value missing")
+		t.Fatal("ConfigCmd.Execute() with args [\"set\", \"key\"] expected error, got nil")
 	}
 }
 
@@ -364,7 +364,7 @@ func TestConfigCmd_GetRequiresArg(t *testing.T) {
 	err := cmd.Execute()
 
 	if err == nil {
-		t.Fatal("expected error when key missing")
+		t.Fatal("ConfigCmd.Execute() with args [\"get\"] expected error, got nil")
 	}
 }
 
@@ -381,6 +381,6 @@ func TestConfigCmd_ListNoArgs(t *testing.T) {
 	err := cmd.Execute()
 
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("ConfigCmd.Execute() with args [\"list\"] unexpected error: %v", err)
 	}
 }

@@ -55,7 +55,7 @@ func TestNewFFmpegRecorder(t *testing.T) {
 			t.Parallel()
 			_, err := audio.NewFFmpegRecorder(tt.ffmpegPath, tt.device)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewFFmpegRecorder() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("NewFFmpegRecorder(%q, %q) error = %v, wantErr %v", tt.ffmpegPath, tt.device, err, tt.wantErr)
 			}
 		})
 	}
@@ -480,12 +480,12 @@ func TestFFmpegRecorder_Record(t *testing.T) {
 			audio.ExportedWithFFmpegRunner(mockRunner),
 		)
 		if err != nil {
-			t.Fatalf("NewFFmpegRecorder() error = %v", err)
+			t.Fatalf("NewFFmpegRecorder(%q, %q) unexpected error: %v", "/usr/bin/ffmpeg", ":0", err)
 		}
 
 		err = rec.Record(context.Background(), 60*time.Second, "/tmp/test.ogg")
 		if err != nil {
-			t.Errorf("Record() error = %v", err)
+			t.Errorf("Record(%v, %q) unexpected error: %v", 60*time.Second, "/tmp/test.ogg", err)
 		}
 	})
 
@@ -568,7 +568,7 @@ func TestFFmpegRecorder_ListDevices(t *testing.T) {
 
 		devices, err := rec.ListDevices(context.Background())
 		if err != nil {
-			t.Fatalf("ListDevices() error = %v", err)
+			t.Errorf("ListDevices() unexpected error: %v", err)
 		}
 
 		// On macOS, we expect the microphone to be prioritized
@@ -599,7 +599,7 @@ func TestFFmpegRecorder_ListDevices(t *testing.T) {
 
 		devices, err := rec.ListDevices(context.Background())
 		if err != nil {
-			t.Fatalf("ListDevices() should ignore exit error when stderr has content, got: %v", err)
+			t.Errorf("ListDevices() with valid stderr unexpected error: %v", err)
 		}
 		if len(devices) == 0 {
 			t.Error("ListDevices() should return devices from stderr")
@@ -749,13 +749,13 @@ func TestLoopbackRecorder_InitializesFFmpegRunner(t *testing.T) {
 		audio.ExportedWithFFmpegRunner(mockRunner),
 	)
 	if err != nil {
-		t.Fatalf("NewFFmpegRecorder() error = %v", err)
+		t.Fatalf("NewFFmpegRecorder(%q, %q) unexpected error: %v", "/usr/bin/ffmpeg", ":0", err)
 	}
 
 	// This call would panic before the fix if ffmpegRunner was nil.
 	err = rec.Record(context.Background(), 1*time.Second, "/tmp/test.ogg")
 	if err != nil {
-		t.Errorf("Record() error = %v, expected nil with mock runner", err)
+		t.Errorf("Record(%v, %q) unexpected error: %v (expected nil with mock runner)", 1*time.Second, "/tmp/test.ogg", err)
 	}
 }
 

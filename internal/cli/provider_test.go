@@ -217,7 +217,7 @@ func TestProvider_PreParsedConstants(t *testing.T) {
 	// Verify pre-parsed constants match parsed values
 	deepseek, err := ParseProvider("deepseek")
 	if err != nil {
-		t.Fatalf("ParseProvider(\"deepseek\") failed: %v", err)
+		t.Fatalf("ParseProvider(\"deepseek\") unexpected error: %v", err)
 	}
 	if deepseek != DeepSeekProvider {
 		t.Errorf("DeepSeekProvider != ParseProvider(\"deepseek\")")
@@ -225,7 +225,7 @@ func TestProvider_PreParsedConstants(t *testing.T) {
 
 	openai, err := ParseProvider("openai")
 	if err != nil {
-		t.Fatalf("ParseProvider(\"openai\") failed: %v", err)
+		t.Fatalf("ParseProvider(\"openai\") unexpected error: %v", err)
 	}
 	if openai != OpenAIProvider {
 		t.Errorf("OpenAIProvider != ParseProvider(\"openai\")")

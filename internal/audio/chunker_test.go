@@ -304,11 +304,10 @@ frame= 300 time=00:00:30.00`,
 			t.Parallel()
 			got, err := audio.ParseDurationFromFFmpegOutput(tt.output)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseDurationFromFFmpegOutput() error = %v, wantErr %v", err, tt.wantErr)
-				return
+				t.Fatalf("ParseDurationFromFFmpegOutput(%q) error = %v, wantErr %v", tt.output, err, tt.wantErr)
 			}
 			if got != tt.want {
-				t.Errorf("ParseDurationFromFFmpegOutput() = %v, want %v", got, tt.want)
+				t.Errorf("ParseDurationFromFFmpegOutput(%q) = %v, want %v", tt.output, got, tt.want)
 			}
 		})
 	}
@@ -384,11 +383,10 @@ func TestParseTimeComponents(t *testing.T) {
 			t.Parallel()
 			got, err := audio.ParseTimeComponents(tt.hours, tt.minutes, tt.seconds, tt.centiseconds)
 			if err != nil {
-				t.Errorf("ParseTimeComponents() error = %v", err)
-				return
+				t.Fatalf("ParseTimeComponents(%q, %q, %q, %q) unexpected error: %v", tt.hours, tt.minutes, tt.seconds, tt.centiseconds, err)
 			}
 			if got != tt.want {
-				t.Errorf("ParseTimeComponents() = %v, want %v", got, tt.want)
+				t.Errorf("ParseTimeComponents(%q, %q, %q, %q) = %v, want %v", tt.hours, tt.minutes, tt.seconds, tt.centiseconds, got, tt.want)
 			}
 		})
 	}

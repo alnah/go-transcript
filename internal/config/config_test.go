@@ -285,10 +285,10 @@ func TestLoad(t *testing.T) {
 
 		cfg, err := Load()
 		if err != nil {
-			t.Fatalf("Load() error = %v", err)
+			t.Fatalf("Load() unexpected error: %v", err)
 		}
 		if cfg.OutputDir != "" {
-			t.Errorf("OutputDir = %q, want empty", cfg.OutputDir)
+			t.Errorf("Load().OutputDir = %q, want empty", cfg.OutputDir)
 		}
 	})
 
@@ -300,7 +300,7 @@ func TestLoad(t *testing.T) {
 
 		cfg, err := Load()
 		if err != nil {
-			t.Fatalf("Load() error = %v", err)
+			t.Fatalf("Load() unexpected error: %v", err)
 		}
 		if cfg.OutputDir != "/from/file" {
 			t.Errorf("OutputDir = %q, want %q", cfg.OutputDir, "/from/file")
@@ -315,7 +315,7 @@ func TestLoad(t *testing.T) {
 
 		cfg, err := Load()
 		if err != nil {
-			t.Fatalf("Load() error = %v", err)
+			t.Fatalf("Load() unexpected error: %v", err)
 		}
 		if cfg.OutputDir != "/from/env" {
 			t.Errorf("OutputDir = %q, want %q", cfg.OutputDir, "/from/env")
@@ -330,7 +330,7 @@ func TestLoad(t *testing.T) {
 
 		cfg, err := Load()
 		if err != nil {
-			t.Fatalf("Load() error = %v", err)
+			t.Fatalf("Load() unexpected error: %v", err)
 		}
 		if cfg.OutputDir != "/from/file" {
 			t.Errorf("OutputDir = %q, want %q (file should take precedence)", cfg.OutputDir, "/from/file")
@@ -345,7 +345,7 @@ func TestLoad(t *testing.T) {
 
 		cfg, err := Load()
 		if err != nil {
-			t.Fatalf("Load() error = %v", err)
+			t.Fatalf("Load() unexpected error: %v", err)
 		}
 		if cfg.OutputDir != "/from/env" {
 			t.Errorf("OutputDir = %q, want %q", cfg.OutputDir, "/from/env")
@@ -378,13 +378,13 @@ func TestSave(t *testing.T) {
 
 		err := Save("output-dir", "/new/path")
 		if err != nil {
-			t.Fatalf("Save() error = %v", err)
+			t.Fatalf("Save(%q, %q) unexpected error: %v", "output-dir", "/new/path", err)
 		}
 
 		// Verify file was created
 		cfg, err := Load()
 		if err != nil {
-			t.Fatalf("Load() error = %v", err)
+			t.Fatalf("Load() unexpected error: %v", err)
 		}
 		if cfg.OutputDir != "/new/path" {
 			t.Errorf("OutputDir = %q, want %q", cfg.OutputDir, "/new/path")
@@ -398,12 +398,12 @@ func TestSave(t *testing.T) {
 
 		err := Save("output-dir", "/new/path")
 		if err != nil {
-			t.Fatalf("Save() error = %v", err)
+			t.Fatalf("Save(%q, %q) unexpected error: %v", "output-dir", "/new/path", err)
 		}
 
 		cfg, err := Load()
 		if err != nil {
-			t.Fatalf("Load() error = %v", err)
+			t.Fatalf("Load() unexpected error: %v", err)
 		}
 		if cfg.OutputDir != "/new/path" {
 			t.Errorf("OutputDir = %q, want %q", cfg.OutputDir, "/new/path")
@@ -417,12 +417,12 @@ func TestSave(t *testing.T) {
 
 		err := Save("output-dir", "/new")
 		if err != nil {
-			t.Fatalf("Save() error = %v", err)
+			t.Fatalf("Save(%q, %q) unexpected error: %v", "output-dir", "/new", err)
 		}
 
 		data, err := List()
 		if err != nil {
-			t.Fatalf("List() error = %v", err)
+			t.Fatalf("List() unexpected error: %v", err)
 		}
 		if data["other-key"] != "preserved" {
 			t.Errorf("other-key = %q, want %q", data["other-key"], "preserved")
@@ -439,12 +439,12 @@ func TestSave(t *testing.T) {
 
 		err := Save("new-key", "new-value")
 		if err != nil {
-			t.Fatalf("Save() error = %v", err)
+			t.Fatalf("Save(%q, %q) unexpected error: %v", "new-key", "new-value", err)
 		}
 
 		data, err := List()
 		if err != nil {
-			t.Fatalf("List() error = %v", err)
+			t.Fatalf("List() unexpected error: %v", err)
 		}
 		if data["existing-key"] != "value" {
 			t.Errorf("existing-key = %q, want %q", data["existing-key"], "value")
@@ -460,10 +460,10 @@ func TestSave(t *testing.T) {
 
 		err := Save("", "value")
 		if err == nil {
-			t.Error("Save(\"\", ...) = nil, want error")
+			t.Error("Save(\"\", \"value\") = nil, want error")
 		}
 		if !errors.Is(err, ErrInvalidKey) {
-			t.Errorf("Save(\"\", ...) error = %v, want ErrInvalidKey", err)
+			t.Errorf("Save(\"\", \"value\") error = %v, want ErrInvalidKey", err)
 		}
 	})
 
@@ -473,10 +473,10 @@ func TestSave(t *testing.T) {
 
 		err := Save("key=value", "value")
 		if err == nil {
-			t.Error("Save(\"key=value\", ...) = nil, want error")
+			t.Error("Save(\"key=value\", \"value\") = nil, want error")
 		}
 		if !errors.Is(err, ErrInvalidKey) {
-			t.Errorf("Save(\"key=value\", ...) error = %v, want ErrInvalidKey", err)
+			t.Errorf("Save(\"key=value\", \"value\") error = %v, want ErrInvalidKey", err)
 		}
 	})
 
@@ -486,10 +486,10 @@ func TestSave(t *testing.T) {
 
 		err := Save("key\nvalue", "value")
 		if err == nil {
-			t.Error("Save(\"key\\nvalue\", ...) = nil, want error")
+			t.Error("Save(\"key\\nvalue\", \"value\") = nil, want error")
 		}
 		if !errors.Is(err, ErrInvalidKey) {
-			t.Errorf("Save(\"key\\nvalue\", ...) error = %v, want ErrInvalidKey", err)
+			t.Errorf("Save(\"key\\nvalue\", \"value\") error = %v, want ErrInvalidKey", err)
 		}
 	})
 }
@@ -508,7 +508,7 @@ func TestGet(t *testing.T) {
 
 		got, err := Get("my-key")
 		if err != nil {
-			t.Fatalf("Get() error = %v", err)
+			t.Fatalf("Get(%q) unexpected error: %v", "my-key", err)
 		}
 		if got != "my-value" {
 			t.Errorf("Get(%q) = %q, want %q", "my-key", got, "my-value")
@@ -522,7 +522,7 @@ func TestGet(t *testing.T) {
 
 		got, err := Get("missing-key")
 		if err != nil {
-			t.Fatalf("Get() error = %v", err)
+			t.Fatalf("Get(%q) unexpected error: %v", "missing-key", err)
 		}
 		if got != "" {
 			t.Errorf("Get(%q) = %q, want empty", "missing-key", got)
@@ -536,7 +536,7 @@ func TestGet(t *testing.T) {
 
 		got, err := Get("any-key")
 		if err != nil {
-			t.Fatalf("Get() error = %v", err)
+			t.Fatalf("Get(%q) unexpected error: %v", "any-key", err)
 		}
 		if got != "" {
 			t.Errorf("Get(%q) = %q, want empty", "any-key", got)
@@ -569,7 +569,7 @@ func TestList(t *testing.T) {
 
 		got, err := List()
 		if err != nil {
-			t.Fatalf("List() error = %v", err)
+			t.Fatalf("List() unexpected error: %v", err)
 		}
 		if len(got) != 2 {
 			t.Errorf("List() returned %d items, want 2", len(got))
@@ -589,7 +589,7 @@ func TestList(t *testing.T) {
 
 		got, err := List()
 		if err != nil {
-			t.Fatalf("List() error = %v", err)
+			t.Fatalf("List() unexpected error: %v", err)
 		}
 		if got == nil {
 			t.Error("List() returned nil, want empty map")
@@ -606,7 +606,7 @@ func TestList(t *testing.T) {
 
 		got, err := List()
 		if err != nil {
-			t.Fatalf("List() error = %v", err)
+			t.Fatalf("List() unexpected error: %v", err)
 		}
 		if len(got) != 0 {
 			t.Errorf("List() returned %d items, want 0", len(got))
@@ -647,13 +647,13 @@ func TestEnsureOutputDir(t *testing.T) {
 
 		err := EnsureOutputDir(newDir)
 		if err != nil {
-			t.Fatalf("EnsureOutputDir(%q) = %v, want nil", newDir, err)
+			t.Fatalf("EnsureOutputDir(%q) unexpected error: %v", newDir, err)
 		}
 
 		// Verify directory was created
 		info, err := os.Stat(newDir)
 		if err != nil {
-			t.Fatalf("os.Stat(%q) error = %v", newDir, err)
+			t.Fatalf("os.Stat(%q) unexpected error: %v", newDir, err)
 		}
 		if !info.IsDir() {
 			t.Errorf("%q is not a directory", newDir)
@@ -703,7 +703,7 @@ func TestEnsureOutputDir(t *testing.T) {
 		// Verify directory was created
 		info, statErr := os.Stat(testDir)
 		if statErr != nil {
-			t.Fatalf("os.Stat(%q) error = %v", testDir, statErr)
+			t.Fatalf("os.Stat(%q) unexpected error: %v", testDir, statErr)
 		}
 		if !info.IsDir() {
 			t.Errorf("%q is not a directory", testDir)
@@ -777,7 +777,7 @@ func TestParseFile(t *testing.T) {
 
 		got, err := parseFile(configPath)
 		if err != nil {
-			t.Fatalf("parseFile() error = %v", err)
+			t.Fatalf("parseFile(%q) unexpected error: %v", configPath, err)
 		}
 		if got["key1"] != "value1" {
 			t.Errorf("key1 = %q, want %q", got["key1"], "value1")
@@ -797,7 +797,7 @@ func TestParseFile(t *testing.T) {
 
 		got, err := parseFile(configPath)
 		if err != nil {
-			t.Fatalf("parseFile() error = %v", err)
+			t.Fatalf("parseFile(%q) unexpected error: %v", configPath, err)
 		}
 		if len(got) != 1 {
 			t.Errorf("parseFile() returned %d items, want 1", len(got))
@@ -817,7 +817,7 @@ func TestParseFile(t *testing.T) {
 
 		got, err := parseFile(configPath)
 		if err != nil {
-			t.Fatalf("parseFile() error = %v", err)
+			t.Fatalf("parseFile(%q) unexpected error: %v", configPath, err)
 		}
 		if len(got) != 1 {
 			t.Errorf("parseFile() returned %d items, want 1", len(got))
@@ -834,7 +834,7 @@ func TestParseFile(t *testing.T) {
 
 		got, err := parseFile(configPath)
 		if err != nil {
-			t.Fatalf("parseFile() error = %v", err)
+			t.Fatalf("parseFile(%q) unexpected error: %v", configPath, err)
 		}
 		if got["key"] != "value" {
 			t.Errorf("key = %q, want %q (should trim whitespace)", got["key"], "value")
@@ -851,7 +851,7 @@ func TestParseFile(t *testing.T) {
 
 		got, err := parseFile(configPath)
 		if err != nil {
-			t.Fatalf("parseFile() error = %v", err)
+			t.Fatalf("parseFile(%q) unexpected error: %v", configPath, err)
 		}
 		if got["key"] != "value=with=equals" {
 			t.Errorf("key = %q, want %q", got["key"], "value=with=equals")
@@ -895,7 +895,7 @@ func TestDir(t *testing.T) {
 
 		got, err := dir()
 		if err != nil {
-			t.Fatalf("dir() error = %v", err)
+			t.Fatalf("dir() unexpected error: %v", err)
 		}
 		want := "/custom/config/go-transcript"
 		if got != want {
@@ -913,7 +913,7 @@ func TestDir(t *testing.T) {
 
 		got, err := dir()
 		if err != nil {
-			t.Fatalf("dir() error = %v", err)
+			t.Fatalf("dir() unexpected error: %v", err)
 		}
 		want := filepath.Join(home, ".config", "go-transcript")
 		if got != want {

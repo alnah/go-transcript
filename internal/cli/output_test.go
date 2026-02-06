@@ -141,7 +141,7 @@ func TestWarnNonMarkdownExtension(t *testing.T) {
 	}
 }
 
-func TestWarnNonMarkdownExtension_CaseNormalization(t *testing.T) {
+func TestWarnNonMarkdownExtensionCaseNormalization(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
@@ -150,11 +150,11 @@ func TestWarnNonMarkdownExtension_CaseNormalization(t *testing.T) {
 
 	// Verify lowercase is present
 	if !strings.Contains(output, ".txt") {
-		t.Errorf("expected lowercase .txt in output, got: %q", output)
+		t.Errorf("warnNonMarkdownExtension(%q) output = %q, want containing %q", "output.TXT", output, ".txt")
 	}
 
 	// Verify uppercase is NOT present (case normalization works)
 	if strings.Contains(output, ".TXT") {
-		t.Errorf("expected uppercase .TXT to be normalized, got: %q", output)
+		t.Errorf("warnNonMarkdownExtension(%q) output = %q, should not contain %q (case normalization failed)", "output.TXT", output, ".TXT")
 	}
 }

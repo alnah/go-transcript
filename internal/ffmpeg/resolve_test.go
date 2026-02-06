@@ -71,38 +71,38 @@ func TestVerifyChecksum(t *testing.T) {
 			// Verify
 			err := verifyChecksum(filePath, expectedSHA)
 			if tt.expectMatch && err != nil {
-				t.Errorf("expected match, got error: %v", err)
+				t.Errorf("verifyChecksum(%q, %q) unexpected error: %v", filePath, expectedSHA, err)
 			}
 		})
 	}
 }
 
-func TestVerifyChecksum_Mismatch(t *testing.T) {
+func TestVerifyChecksumMismatch(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "testfile")
 	if err := os.WriteFile(filePath, []byte("actual content"), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+		t.Fatalf("setup: failed to write test file: %v", err)
 	}
 
 	wrongSHA := "0000000000000000000000000000000000000000000000000000000000000000"
 
 	err := verifyChecksum(filePath, wrongSHA)
 	if err == nil {
-		t.Error("expected error for checksum mismatch, got nil")
+		t.Errorf("verifyChecksum(%q, %q) = nil, want error", filePath, wrongSHA)
 	}
 	if !errors.Is(err, ErrChecksumMismatch) {
-		t.Errorf("expected ErrChecksumMismatch, got: %v", err)
+		t.Errorf("verifyChecksum(%q, %q) error = %v, want ErrChecksumMismatch", filePath, wrongSHA, err)
 	}
 }
 
-func TestVerifyChecksum_FileNotFound(t *testing.T) {
+func TestVerifyChecksumFileNotFound(t *testing.T) {
 	t.Parallel()
 
 	err := verifyChecksum("/nonexistent/path/file", "anychecksum")
 	if err == nil {
-		t.Error("expected error for nonexistent file, got nil")
+		t.Errorf("verifyChecksum(%q, %q) = nil, want error", "/nonexistent/path/file", "anychecksum")
 	}
 }
 
@@ -149,22 +149,22 @@ func TestDecompressGzip(t *testing.T) {
 			destPath := filepath.Join(tmpDir, "output")
 			err := decompressGzip(gzPath, destPath)
 			if err != nil {
-				t.Fatalf("decompressGzip failed: %v", err)
+				t.Fatalf("decompressGzip(%q, %q) unexpected error: %v", gzPath, destPath, err)
 			}
 
 			// Verify content
 			got, err := os.ReadFile(destPath)
 			if err != nil {
-				t.Fatalf("failed to read output: %v", err)
+				t.Fatalf("setup: failed to read output: %v", err)
 			}
 			if !bytes.Equal(got, tt.content) {
-				t.Errorf("content mismatch: got %d bytes, want %d bytes", len(got), len(tt.content))
+				t.Errorf("decompressGzip(%q, %q) wrote %d bytes, want %d bytes", gzPath, destPath, len(got), len(tt.content))
 			}
 		})
 	}
 }
 
-func TestDecompressGzip_InvalidGzip(t *testing.T) {
+func TestDecompressGzipInvalidGzip(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -172,17 +172,17 @@ func TestDecompressGzip_InvalidGzip(t *testing.T) {
 	// Create invalid gzip file (just random bytes)
 	gzPath := filepath.Join(tmpDir, "invalid.gz")
 	if err := os.WriteFile(gzPath, []byte("not a gzip file"), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+		t.Fatalf("setup: failed to write test file: %v", err)
 	}
 
 	destPath := filepath.Join(tmpDir, "output")
 	err := decompressGzip(gzPath, destPath)
 	if err == nil {
-		t.Error("expected error for invalid gzip, got nil")
+		t.Errorf("decompressGzip(%q, %q) = nil, want error", gzPath, destPath)
 	}
 }
 
-func TestDecompressGzip_FileNotFound(t *testing.T) {
+func TestDecompressGzipFileNotFound(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -190,11 +190,11 @@ func TestDecompressGzip_FileNotFound(t *testing.T) {
 
 	err := decompressGzip("/nonexistent/file.gz", destPath)
 	if err == nil {
-		t.Error("expected error for nonexistent file, got nil")
+		t.Errorf("decompressGzip(%q, %q) = nil, want error", "/nonexistent/file.gz", destPath)
 	}
 }
 
-func TestDecompressGzip_AtomicWrite(t *testing.T) {
+func TestDecompressGzipAtomicWrite(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -208,24 +208,24 @@ func TestDecompressGzip_AtomicWrite(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "output")
 	err := decompressGzip(gzPath, destPath)
 	if err != nil {
-		t.Fatalf("decompressGzip failed: %v", err)
+		t.Fatalf("decompressGzip(%q, %q) unexpected error: %v", gzPath, destPath, err)
 	}
 
 	// Verify no temp files left behind
 	entries, err := os.ReadDir(tmpDir)
 	if err != nil {
-		t.Fatalf("failed to read temp dir: %v", err)
+		t.Fatalf("setup: failed to read temp dir: %v", err)
 	}
 
 	for _, entry := range entries {
 		name := entry.Name()
 		if name != "test.gz" && name != "output" {
-			t.Errorf("unexpected file left behind: %s", name)
+			t.Errorf("decompressGzip(%q, %q) left unexpected file: %s", gzPath, destPath, name)
 		}
 	}
 }
 
-func TestDecompressGzip_SizeLimitProtection(t *testing.T) {
+func TestDecompressGzipSizeLimitProtection(t *testing.T) {
 	t.Parallel()
 
 	// This test verifies that decompressGzip enforces the size limit.
@@ -244,16 +244,16 @@ func TestDecompressGzip_SizeLimitProtection(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "output")
 	err := decompressGzip(gzPath, destPath)
 	if err != nil {
-		t.Fatalf("decompressGzip failed for content under limit: %v", err)
+		t.Fatalf("decompressGzip(%q, %q) unexpected error for content under limit: %v", gzPath, destPath, err)
 	}
 
 	// Verify content was written correctly
 	got, err := os.ReadFile(destPath)
 	if err != nil {
-		t.Fatalf("failed to read output: %v", err)
+		t.Fatalf("setup: failed to read output: %v", err)
 	}
 	if len(got) != len(content) {
-		t.Errorf("content size mismatch: got %d, want %d", len(got), len(content))
+		t.Errorf("decompressGzip(%q, %q) wrote %d bytes, want %d bytes", gzPath, destPath, len(got), len(content))
 	}
 }
 
@@ -285,7 +285,7 @@ func createGzipFile(t *testing.T, path string, content []byte) {
 // Resolver - dependency injection tests
 // ---------------------------------------------------------------------------
 
-func TestResolver_Resolve_EnvPath(t *testing.T) {
+func TestResolverResolveEnvPath(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -346,24 +346,24 @@ func TestResolver_Resolve_EnvPath(t *testing.T) {
 
 			if tt.wantErr {
 				if err == nil {
-					t.Error("expected error, got nil")
+					t.Errorf("Resolve() = %q, nil; want error", got)
 				}
-				if !errors.Is(err, ErrNotFound) {
-					t.Errorf("expected ErrNotFound, got: %v", err)
+				if err != nil && !errors.Is(err, ErrNotFound) {
+					t.Errorf("Resolve() error = %v, want ErrNotFound", err)
 				}
 			} else {
 				if err != nil {
-					t.Errorf("unexpected error: %v", err)
+					t.Errorf("Resolve() unexpected error: %v", err)
 				}
 				if got != tt.wantPath {
-					t.Errorf("got %q, want %q", got, tt.wantPath)
+					t.Errorf("Resolve() = %q, want %q", got, tt.wantPath)
 				}
 			}
 		})
 	}
 }
 
-func TestResolver_Resolve_InstalledPath(t *testing.T) {
+func TestResolverResolveInstalledPath(t *testing.T) {
 	t.Parallel()
 
 	homeDir := "/mock/home"
@@ -399,14 +399,14 @@ func TestResolver_Resolve_InstalledPath(t *testing.T) {
 
 	got, err := resolver.Resolve(context.Background())
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Resolve() unexpected error: %v", err)
 	}
 	if got != installedPath {
-		t.Errorf("got %q, want %q", got, installedPath)
+		t.Errorf("Resolve() = %q, want %q", got, installedPath)
 	}
 }
 
-func TestResolver_Resolve_SystemPath(t *testing.T) {
+func TestResolverResolveSystemPath(t *testing.T) {
 	t.Parallel()
 
 	systemFFmpeg := "/usr/local/bin/ffmpeg"
@@ -436,14 +436,14 @@ func TestResolver_Resolve_SystemPath(t *testing.T) {
 
 	got, err := resolver.Resolve(context.Background())
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Resolve() unexpected error: %v", err)
 	}
 	if got != systemFFmpeg {
-		t.Errorf("got %q, want %q", got, systemFFmpeg)
+		t.Errorf("Resolve() = %q, want %q", got, systemFFmpeg)
 	}
 }
 
-func TestResolver_Resolve_UnsupportedPlatform(t *testing.T) {
+func TestResolverResolveUnsupportedPlatform(t *testing.T) {
 	t.Parallel()
 
 	env := &mockEnvProvider{
@@ -468,14 +468,14 @@ func TestResolver_Resolve_UnsupportedPlatform(t *testing.T) {
 
 	_, err := resolver.Resolve(context.Background())
 	if err == nil {
-		t.Error("expected error for unsupported platform")
+		t.Errorf("Resolve() = nil, want error for unsupported platform")
 	}
-	if !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound (wrapping UnsupportedPlatform), got: %v", err)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		t.Errorf("Resolve() error = %v, want ErrNotFound (wrapping UnsupportedPlatform)", err)
 	}
 }
 
-func TestResolver_Resolve_AutoDownload(t *testing.T) {
+func TestResolverResolveAutoDownload(t *testing.T) {
 	t.Parallel()
 
 	// Create a fake gzipped binary
@@ -522,31 +522,31 @@ func TestResolver_Resolve_AutoDownload(t *testing.T) {
 
 	got, err := resolver.Resolve(context.Background())
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Resolve() unexpected error: %v", err)
 	}
 
 	expectedPath := filepath.Join(tmpDir, ".go-transcript", "bin", "ffmpeg")
 	if got != expectedPath {
-		t.Errorf("got %q, want %q", got, expectedPath)
+		t.Errorf("Resolve() = %q, want %q", got, expectedPath)
 	}
 
 	// Verify file was created
 	if _, err := os.Stat(got); err != nil {
-		t.Errorf("binary not created: %v", err)
+		t.Errorf("Resolve() did not create binary: %v", err)
 	}
 
 	// Verify version file
 	versionPath := filepath.Join(tmpDir, ".go-transcript", "bin", ".version")
 	versionData, err := os.ReadFile(versionPath)
 	if err != nil {
-		t.Errorf("version file not created: %v", err)
+		t.Errorf("Resolve() did not create version file: %v", err)
 	}
 	if string(versionData) != ffmpegVersion {
-		t.Errorf("version mismatch: got %q, want %q", string(versionData), ffmpegVersion)
+		t.Errorf("Resolve() wrote version %q, want %q", string(versionData), ffmpegVersion)
 	}
 }
 
-func TestResolver_Resolve_DownloadChecksumMismatch(t *testing.T) {
+func TestResolverResolveDownloadChecksumMismatch(t *testing.T) {
 	t.Parallel()
 
 	// Create a fake gzipped binary
@@ -587,11 +587,11 @@ func TestResolver_Resolve_DownloadChecksumMismatch(t *testing.T) {
 
 	_, err := resolver.Resolve(context.Background())
 	if err == nil {
-		t.Error("expected error for checksum mismatch")
+		t.Errorf("Resolve() = nil, want error for checksum mismatch")
 	}
 }
 
-func TestResolver_Resolve_HTTPError(t *testing.T) {
+func TestResolverResolveHTTPError(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -620,11 +620,11 @@ func TestResolver_Resolve_HTTPError(t *testing.T) {
 
 	_, err := resolver.Resolve(context.Background())
 	if err == nil {
-		t.Error("expected error for HTTP failure")
+		t.Errorf("Resolve() = nil, want error for HTTP failure")
 	}
 }
 
-func TestResolver_WindowsBinaryName(t *testing.T) {
+func TestResolverWindowsBinaryName(t *testing.T) {
 	t.Parallel()
 
 	env := &mockEnvProvider{
@@ -639,15 +639,15 @@ func TestResolver_WindowsBinaryName(t *testing.T) {
 
 	path, err := resolver.installedPath()
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("installedPath() unexpected error: %v", err)
 	}
 
 	if filepath.Base(path) != "ffmpeg.exe" {
-		t.Errorf("expected ffmpeg.exe, got %s", filepath.Base(path))
+		t.Errorf("installedPath() base = %s, want ffmpeg.exe", filepath.Base(path))
 	}
 }
 
-func TestResolver_ManualInstallInstructions(t *testing.T) {
+func TestResolverManualInstallInstructions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -681,7 +681,7 @@ func TestResolver_ManualInstallInstructions(t *testing.T) {
 
 			for _, want := range tt.wantContains {
 				if !strings.Contains(instructions, want) {
-					t.Errorf("instructions for %s missing %q:\n%s", tt.goos, want, instructions)
+					t.Errorf("manualInstallInstructions() for %s missing %q:\n%s", tt.goos, want, instructions)
 				}
 			}
 		})
