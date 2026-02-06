@@ -125,19 +125,13 @@ func TestFormatInputArg(t *testing.T) {
 			name:   "dshow with device name",
 			format: "dshow",
 			device: "Microphone (Realtek)",
-			want:   `audio="Microphone (Realtek)"`,
+			want:   "audio=Microphone (Realtek)",
 		},
 		{
-			name:   "dshow already prefixed without quotes",
+			name:   "dshow already prefixed",
 			format: "dshow",
 			device: "audio=Microphone",
-			want:   `audio="Microphone"`,
-		},
-		{
-			name:   "dshow already prefixed with quotes",
-			format: "dshow",
-			device: `audio="Microphone"`,
-			want:   `audio="Microphone"`,
+			want:   "audio=Microphone",
 		},
 		// ALSA (Linux)
 		{

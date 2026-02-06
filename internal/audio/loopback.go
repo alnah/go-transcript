@@ -174,7 +174,7 @@ func detectLoopbackWindows(ctx context.Context, ffmpegPath string) (*loopbackDev
 			fullName := extractDShowDeviceName(stderr, name)
 			if fullName != "" {
 				return &loopbackDevice{
-					name:   "audio=\"" + fullName + "\"",
+					name:   "audio=" + fullName,
 					format: "dshow",
 				}, nil
 			}
@@ -188,7 +188,7 @@ func detectLoopbackWindows(ctx context.Context, ffmpegPath string) (*loopbackDev
 			fullName := extractDShowDeviceName(stderr, name)
 			if fullName != "" {
 				return &loopbackDevice{
-					name:   "audio=\"" + fullName + "\"",
+					name:   "audio=" + fullName,
 					format: "dshow",
 				}, nil
 			}
@@ -198,7 +198,7 @@ func detectLoopbackWindows(ctx context.Context, ffmpegPath string) (*loopbackDev
 	// Priority 3: Look for virtual-audio-capturer (legacy fallback)
 	if strings.Contains(stderr, "virtual-audio-capturer") {
 		return &loopbackDevice{
-			name:   "audio=\"virtual-audio-capturer\"",
+			name:   "audio=virtual-audio-capturer",
 			format: "dshow",
 		}, nil
 	}
