@@ -395,11 +395,18 @@ func formatInputArg(format, device string) string {
 		}
 		return ":" + device
 	case "dshow":
-		// Windows: format is "audio=DeviceName".
+		// Windows: dshow's internal parser requires embedded quotes around
+		// device names that contain spaces or parentheses.
+		// The -i value must be: audio="DeviceName"
 		if strings.HasPrefix(device, "audio=") {
-			return device
+			// Already prefixed; add quotes if missing.
+			name := strings.TrimPrefix(device, "audio=")
+			if strings.HasPrefix(name, "\"") {
+				return device
+			}
+			return "audio=\"" + name + "\""
 		}
-		return "audio=" + device
+		return "audio=\"" + device + "\""
 	default:
 		// Linux ALSA: device name is used directly.
 		return device
