@@ -10,6 +10,12 @@ go-transcript/                  # CLI application
 │       └── main.go             # Entry point, root command, exit codes
 │
 ├── internal/
+│   ├── apierr/                 # Shared API error sentinels and retry logic
+│   │   ├── errors.go           # ErrRateLimit, ErrQuotaExceeded, ErrTimeout, ErrAuthFailed, ErrBadRequest
+│   │   ├── errors_test.go
+│   │   ├── retry.go            # RetryConfig + RetryWithBackoff[T]
+│   │   └── retry_test.go
+│   │
 │   ├── audio/                  # Audio recording and chunking
 │   │   ├── chunker.go          # SilenceChunker - split at pauses
 │   │   ├── chunker_test.go
@@ -27,9 +33,12 @@ go-transcript/                  # CLI application
 │   │   ├── env_test.go
 │   │   ├── errors.go           # CLI-specific sentinel errors
 │   │   ├── errors_test.go
+│   │   ├── helpers_test.go     # Shared test helpers
 │   │   ├── live.go             # `live` command (record + transcribe)
 │   │   ├── live_test.go
 │   │   ├── mocks_test.go       # Test mocks for factories
+│   │   ├── output.go           # Shared output helpers (writeOutput, etc.)
+│   │   ├── output_test.go
 │   │   ├── provider.go         # Provider type (validated LLM provider)
 │   │   ├── provider_test.go
 │   │   ├── record.go           # `record` command
@@ -66,21 +75,23 @@ go-transcript/                  # CLI application
 │   │   ├── language.go         # ISO 639-1 validation
 │   │   └── language_test.go
 │   │
-│   ├── restructure/            # Transcript restructuring (LLM)
-│   │   ├── deepseek.go         # DeepSeek provider
+│   ├── restructure/            # Transcript restructuring (LLM, direct HTTP)
+│   │   ├── deepseek.go         # DeepSeek provider (direct HTTP)
 │   │   ├── deepseek_test.go
-│   │   ├── errors.go           # Sentinel errors
+│   │   ├── errors.go           # Domain-specific errors (ErrTranscriptTooLong, ErrEmptyAPIKey)
+│   │   ├── export_test.go      # Export internals for testing
 │   │   ├── mapreduce.go        # MapReduceRestructurer for long texts
+│   │   ├── openai.go           # OpenAI provider (direct HTTP)
 │   │   ├── openai_test.go
-│   │   ├── restructurer.go     # OpenAI provider
+│   │   ├── restructure.go      # Restructurer interface + estimateTokens
 │   │   └── restructurer_test.go
 │   │
 │   ├── template/               # Restructuring templates
 │   │   ├── template.go         # brainstorm, meeting, lecture, notes
 │   │   └── template_test.go
 │   │
-│   └── transcribe/             # Audio transcription
-│       ├── errors.go           # Sentinel errors
+│   └── transcribe/             # Audio transcription (direct HTTP, no external SDK)
+│       ├── export_test.go      # Export internals for testing
 │       ├── transcriber.go      # OpenAITranscriber, parallel execution
 │       └── transcriber_test.go
 │
@@ -117,10 +128,11 @@ go-transcript/                  # CLI application
 | Package              | Purpose                                      |
 | -------------------- | -------------------------------------------- |
 | `cmd/transcript`     | Entry point, root command, signal handling   |
+| `internal/apierr`    | Shared API error sentinels, retry with backoff |
 | `internal/cli`       | Cobra commands, dependency injection         |
 | `internal/audio`     | FFmpeg recording, silence-based chunking     |
-| `internal/transcribe`| OpenAI transcription API, parallel processing|
-| `internal/restructure`| LLM-based formatting (DeepSeek, OpenAI)     |
+| `internal/transcribe`| OpenAI transcription via direct HTTP, parallel processing |
+| `internal/restructure`| LLM-based formatting via direct HTTP (DeepSeek, OpenAI) |
 | `internal/template`  | Prompt templates for restructuring           |
 | `internal/config`    | User settings (~/.config/go-transcript/)     |
 | `internal/ffmpeg`    | Binary resolution, auto-download             |

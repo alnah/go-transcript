@@ -44,6 +44,19 @@ See [LAYOUT.md](LAYOUT.md) for the complete project layout.
 - All business logic in `internal/` (not importable)
 - Factories enable complete test isolation
 - Multi-provider support via `RestructurerFactory`
+- All API calls use `net/http` directly (no external SDK)
+- Shared error sentinels and retry in `internal/apierr`
+
+**Dependency direction**:
+```
+       cli
+      /   \
+     v     v
+transcribe  restructure
+     \     /
+      v   v
+      apierr          <-- stdlib only, no external deps
+```
 
 ---
 
@@ -120,7 +133,7 @@ env := cli.NewEnv(
 │         │                  (internal/restructure/deepseek.go)    │
 │         │                                                        │
 │         └── "openai" ───▶ OpenAIRestructurer                     │
-│                           (internal/restructure/restructurer.go) │
+│                           (internal/restructure/openai.go)       │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -187,14 +200,18 @@ Platform-specific device detection:
 │                       ▼                                    │
 │              ┌─────────────────┐                           │
 │              │  OpenAI API     │                           │
+│              │  (direct HTTP)  │                           │
 │              │  - Transcribe   │                           │
 │              │  - Diarization  │                           │
 │              └─────────────────┘                           │
 │                                                            │
-│   Retry: Exponential backoff for rate limits               │
+│   Retry: Exponential backoff via apierr.RetryWithBackoff   │
 │   Error: Partial results preserved on failure              │
 └────────────────────────────────────────────────────────────┘
 ```
+
+All API calls use `net/http` directly (no third-party SDK). Each package defines
+its own unexported `httpDoer` interface for testability via `httptest.Server`.
 
 ---
 
@@ -269,11 +286,20 @@ For long transcripts that exceed token limits:
 │  cli.ErrOutputExists        - Output would overwrite     │
 │  audio.ErrNoAudioDevice     - No recording device        │
 │  audio.ErrLoopbackNotFound  - Loopback not available     │
-│  transcribe.ErrRateLimit    - OpenAI rate limited        │
-│  transcribe.ErrQuotaExceeded- Billing issue              │
+│  apierr.ErrRateLimit        - API rate limited           │
+│  apierr.ErrQuotaExceeded    - Billing issue              │
+│  apierr.ErrTimeout          - Request timeout            │
+│  apierr.ErrAuthFailed       - Invalid API key            │
+│  apierr.ErrBadRequest       - Client error (4xx)         │
+│  restructure.ErrTranscriptTooLong - Token limit exceeded │
 │  template.ErrUnknown        - Invalid template name      │
 └──────────────────────────────────────────────────────────┘
 ```
+
+API error sentinels live in `internal/apierr`, shared across all providers.
+Each provider (OpenAI transcription, OpenAI restructure, DeepSeek) maps its
+HTTP response codes to these sentinels at the boundary. Retry logic uses
+`apierr.RetryWithBackoff` with provider-specific `shouldRetry` predicates.
 
 **Exit codes** map errors to specific values (see README.md).
 
@@ -315,9 +341,11 @@ For long transcripts that exceed token limits:
 5. Document in README.md
 
 **Checklist for new providers**:
-1. Create `internal/restructure/{provider}.go`
-2. Implement the restructurer interface
-3. Add to `defaultRestructurerFactory.NewMapReducer()`
-4. Add provider constant to `internal/cli/env.go`
-5. Update CLI flag descriptions
-6. Add integration tests
+1. Create `internal/restructure/{provider}.go` with direct HTTP calls
+2. Implement the `Restructurer` interface (defined in `restructure.go`)
+3. Define per-provider error type, classify into `apierr` sentinels
+4. Add to `defaultRestructurerFactory.NewMapReducer()`
+5. Add provider constant to `internal/cli/env.go`
+6. Update CLI flag descriptions
+7. Add unit tests using `httptest.Server`
+8. Add integration tests
