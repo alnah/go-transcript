@@ -4,7 +4,6 @@ go 1.25.4
 
 require (
 	github.com/joho/godotenv v1.5.1
-	github.com/sashabaranov/go-openai v1.41.2
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.19.0
 )

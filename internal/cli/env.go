@@ -7,8 +7,6 @@ import (
 	"os"
 	"time"
 
-	openai "github.com/sashabaranov/go-openai"
-
 	"github.com/alnah/go-transcript/internal/audio"
 	"github.com/alnah/go-transcript/internal/config"
 	"github.com/alnah/go-transcript/internal/ffmpeg"
@@ -199,8 +197,7 @@ func (defaultConfigLoader) Load() (config.Config, error) {
 type defaultTranscriberFactory struct{}
 
 func (defaultTranscriberFactory) NewTranscriber(apiKey string) transcribe.Transcriber {
-	client := openai.NewClient(apiKey)
-	return transcribe.NewOpenAITranscriber(client, apiKey)
+	return transcribe.NewOpenAITranscriber(apiKey)
 }
 
 // defaultRestructurerFactory implements RestructurerFactory with provider selection.
@@ -222,8 +219,7 @@ func (defaultRestructurerFactory) NewMapReducer(provider Provider, apiKey string
 		}
 		return restructure.NewMapReduceRestructurer(restructurer, opts...), nil
 	case provider.IsOpenAI():
-		client := openai.NewClient(apiKey)
-		restructurer := restructure.NewOpenAIRestructurer(client)
+		restructurer := restructure.NewOpenAIRestructurer(apiKey)
 		return restructure.NewMapReduceRestructurer(restructurer, opts...), nil
 	default:
 		// Defensive: Provider type guarantees validity, but handle zero value

@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alnah/go-transcript/internal/apierr"
 	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/restructure"
 	"github.com/alnah/go-transcript/internal/template"
-	"github.com/alnah/go-transcript/internal/transcribe"
 )
 
 // ---------------------------------------------------------------------------
@@ -249,7 +249,7 @@ func TestClassifyDeepSeekError(t *testing.T) {
 		{
 			name:    "context deadline exceeded",
 			err:     context.DeadlineExceeded,
-			wantErr: transcribe.ErrTimeout,
+			wantErr: apierr.ErrTimeout,
 		},
 		{
 			name:    "unknown error passes through",
@@ -299,12 +299,12 @@ func TestIsRetryableDeepSeekError(t *testing.T) {
 	}{
 		{
 			name: "rate limit is retryable",
-			err:  transcribe.ErrRateLimit,
+			err:  apierr.ErrRateLimit,
 			want: true,
 		},
 		{
 			name: "timeout is retryable",
-			err:  transcribe.ErrTimeout,
+			err:  apierr.ErrTimeout,
 			want: true,
 		},
 		{
@@ -314,12 +314,12 @@ func TestIsRetryableDeepSeekError(t *testing.T) {
 		},
 		{
 			name: "auth failed is not retryable",
-			err:  transcribe.ErrAuthFailed,
+			err:  apierr.ErrAuthFailed,
 			want: false,
 		},
 		{
 			name: "quota exceeded is not retryable",
-			err:  transcribe.ErrQuotaExceeded,
+			err:  apierr.ErrQuotaExceeded,
 			want: false,
 		},
 		{
@@ -552,21 +552,21 @@ func TestDeepSeekRestructurer_HTTPErrors(t *testing.T) {
 			name:       "401 unauthorized",
 			statusCode: http.StatusUnauthorized,
 			body:       deepSeekErrorResponse("Invalid API key", "invalid_api_key", "401"),
-			wantErr:    transcribe.ErrAuthFailed,
+			wantErr:    apierr.ErrAuthFailed,
 			retryable:  false,
 		},
 		{
 			name:       "402 payment required",
 			statusCode: http.StatusPaymentRequired,
 			body:       deepSeekErrorResponse("Insufficient balance", "insufficient_balance", "402"),
-			wantErr:    transcribe.ErrQuotaExceeded,
+			wantErr:    apierr.ErrQuotaExceeded,
 			retryable:  false,
 		},
 		{
 			name:       "429 rate limit",
 			statusCode: http.StatusTooManyRequests,
 			body:       deepSeekErrorResponse("Rate limit exceeded", "rate_limit", "429"),
-			wantErr:    transcribe.ErrRateLimit,
+			wantErr:    apierr.ErrRateLimit,
 			retryable:  true,
 		},
 		{

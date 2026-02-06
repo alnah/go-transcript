@@ -6,17 +6,17 @@ package restructure_test
 // - Internal functions are tested via export_test.go exports
 // - OpenAI-specific tests are in openai_test.go
 // - DeepSeek-specific tests are in deepseek_test.go
+// - MapReduce tests use mockOpenAIServer (httptest.Server) from openai_test.go
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/restructure"
@@ -208,12 +208,13 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 	t.Run("short transcript skips MapReduce", func(t *testing.T) {
 		t.Parallel()
 
-		mock := &mockChatCompleter{
-			response: successResponse("Simple result."),
-		}
+		server := newMockOpenAIServer()
+		t.Cleanup(server.Close)
 
-		base := restructure.NewOpenAIRestructurer(nil,
-			restructure.WithChatCompleter(mock),
+		server.addResponse(http.StatusOK, openAIResponse("Simple result."))
+
+		base := restructure.NewOpenAIRestructurer("test-key",
+			restructure.WithBaseURL(server.URL),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -234,8 +235,8 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 			t.Errorf("unexpected result: %s", result)
 		}
 
-		if mock.CallCount() != 1 {
-			t.Errorf("expected 1 API call, got %d", mock.CallCount())
+		if server.callCount() != 1 {
+			t.Errorf("expected 1 API call, got %d", server.callCount())
 		}
 	})
 
@@ -247,22 +248,16 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 		para2 := strings.Repeat("b", 300) // ~100 tokens
 		transcript := para1 + "\n\n" + para2
 
-		var callsMu sync.Mutex
-		var calls []string
+		server := newMockOpenAIServer()
+		t.Cleanup(server.Close)
 
-		// We need to intercept calls to verify MapReduce behavior
-		interceptMock := &interceptingMock{
-			responses: []string{
-				"# Part 1 Result",
-				"# Part 2 Result",
-				"# Merged Final Result",
-			},
-			calls: &calls,
-			mu:    &callsMu,
-		}
+		// Expect: 2 map calls + 1 reduce call = 3 responses
+		server.addResponse(http.StatusOK, openAIResponse("# Part 1 Result"))
+		server.addResponse(http.StatusOK, openAIResponse("# Part 2 Result"))
+		server.addResponse(http.StatusOK, openAIResponse("# Merged Final Result"))
 
-		base := restructure.NewOpenAIRestructurer(nil,
-			restructure.WithChatCompleter(interceptMock),
+		base := restructure.NewOpenAIRestructurer("test-key",
+			restructure.WithBaseURL(server.URL),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -279,13 +274,9 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 			t.Error("should use MapReduce for long transcript")
 		}
 
-		callsMu.Lock()
-		numCalls := len(calls)
-		callsMu.Unlock()
-
 		// Expect: 2 map calls + 1 reduce call = 3 total
-		if numCalls != 3 {
-			t.Errorf("expected 3 API calls (2 map + 1 reduce), got %d", numCalls)
+		if server.callCount() != 3 {
+			t.Errorf("expected 3 API calls (2 map + 1 reduce), got %d", server.callCount())
 		}
 
 		if result != "# Merged Final Result" {
@@ -296,14 +287,15 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 	t.Run("progress callback is invoked", func(t *testing.T) {
 		t.Parallel()
 
-		interceptMock := &interceptingMock{
-			responses: []string{"chunk1", "chunk2", "merged"},
-			calls:     &[]string{},
-			mu:        &sync.Mutex{},
-		}
+		server := newMockOpenAIServer()
+		t.Cleanup(server.Close)
 
-		base := restructure.NewOpenAIRestructurer(nil,
-			restructure.WithChatCompleter(interceptMock),
+		server.addResponse(http.StatusOK, openAIResponse("chunk1"))
+		server.addResponse(http.StatusOK, openAIResponse("chunk2"))
+		server.addResponse(http.StatusOK, openAIResponse("merged"))
+
+		base := restructure.NewOpenAIRestructurer("test-key",
+			restructure.WithBaseURL(server.URL),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -360,13 +352,20 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 
-		// Mock that cancels context on first call
-		cancellingMock := &cancellingMock{
-			cancel: cancel,
-		}
+		// Use a custom server handler that cancels the context on first call
+		cancelOnce := sync.Once{}
+		cancelServer := newMockOpenAIServerWithHandler(func(w http.ResponseWriter, r *http.Request) {
+			cancelOnce.Do(func() {
+				cancel()
+			})
+			// Return an error so the restructurer sees context cancellation
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"error":{"message":"service unavailable","type":"server_error"}}`))
+		})
+		t.Cleanup(cancelServer.Close)
 
-		base := restructure.NewOpenAIRestructurer(nil,
-			restructure.WithChatCompleter(cancellingMock),
+		base := restructure.NewOpenAIRestructurer("test-key",
+			restructure.WithBaseURL(cancelServer.URL),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -395,17 +394,16 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 	t.Run("adds language instruction in MapReduce", func(t *testing.T) {
 		t.Parallel()
 
-		var capturedPrompts []string
-		var mu sync.Mutex
+		server := newMockOpenAIServer()
+		t.Cleanup(server.Close)
 
-		capturingMock := &capturingMock{
-			prompts:  &capturedPrompts,
-			mu:       &mu,
-			response: "result",
-		}
+		// 2 map calls + 1 reduce call
+		server.addResponse(http.StatusOK, openAIResponse("result1"))
+		server.addResponse(http.StatusOK, openAIResponse("result2"))
+		server.addResponse(http.StatusOK, openAIResponse("merged"))
 
-		base := restructure.NewOpenAIRestructurer(nil,
-			restructure.WithChatCompleter(capturingMock),
+		base := restructure.NewOpenAIRestructurer("test-key",
+			restructure.WithBaseURL(server.URL),
 			restructure.WithRetryDelays(time.Millisecond, time.Millisecond),
 		)
 
@@ -422,156 +420,19 @@ func TestMapReduceRestructurer_Restructure(t *testing.T) {
 			t.Fatalf("Restructure() unexpected error: %v", err)
 		}
 
-		mu.Lock()
-		defer mu.Unlock()
+		// All prompts (map and reduce) should have Portuguese instruction.
+		// Check via the captured calls on the server.
+		server.mu.Lock()
+		defer server.mu.Unlock()
 
-		// All prompts (map and reduce) should have Portuguese instruction
-		// Note: lang.DisplayName("pt-BR") returns "Brazilian Portuguese"
-		for i, prompt := range capturedPrompts {
-			if !strings.Contains(prompt, "Respond in Brazilian Portuguese") {
-				t.Errorf("prompt %d should contain Portuguese instruction, got: %s", i, prompt)
+		for i, call := range server.calls {
+			for _, msg := range call.Messages {
+				if msg["role"] == "system" {
+					if !strings.Contains(msg["content"], "Respond in Brazilian Portuguese") {
+						t.Errorf("call %d system prompt should contain Portuguese instruction, got: %s", i, msg["content"])
+					}
+				}
 			}
 		}
 	})
-}
-
-// ---------------------------------------------------------------------------
-// Shared helper mocks for MapReduce tests
-// ---------------------------------------------------------------------------
-
-// mockChatCompleter implements chatCompleter for testing.
-type mockChatCompleter struct {
-	mu          sync.Mutex
-	calls       []chatCall
-	response    openai.ChatCompletionResponse
-	err         error
-	errSequence []error
-	callCount   int
-}
-
-type chatCall struct {
-	Model    string
-	Messages []openai.ChatCompletionMessage
-}
-
-func (m *mockChatCompleter) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.calls = append(m.calls, chatCall{
-		Model:    req.Model,
-		Messages: req.Messages,
-	})
-
-	if len(m.errSequence) > 0 {
-		idx := m.callCount
-		m.callCount++
-		if idx < len(m.errSequence) {
-			if m.errSequence[idx] != nil {
-				return openai.ChatCompletionResponse{}, m.errSequence[idx]
-			}
-		}
-	} else if m.err != nil {
-		return openai.ChatCompletionResponse{}, m.err
-	}
-
-	return m.response, nil
-}
-
-func (m *mockChatCompleter) CallCount() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.calls)
-}
-
-func (m *mockChatCompleter) LastCall() chatCall {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.calls) == 0 {
-		return chatCall{}
-	}
-	return m.calls[len(m.calls)-1]
-}
-
-func (m *mockChatCompleter) SystemPrompt() string {
-	call := m.LastCall()
-	for _, msg := range call.Messages {
-		if msg.Role == openai.ChatMessageRoleSystem {
-			return msg.Content
-		}
-	}
-	return ""
-}
-
-// successResponse creates a mock response with the given content.
-func successResponse(content string) openai.ChatCompletionResponse {
-	return openai.ChatCompletionResponse{
-		Choices: []openai.ChatCompletionChoice{
-			{Message: openai.ChatCompletionMessage{Content: content}},
-		},
-	}
-}
-
-// interceptingMock returns predefined responses in sequence.
-type interceptingMock struct {
-	responses []string
-	calls     *[]string
-	mu        *sync.Mutex
-	index     int
-}
-
-func (m *interceptingMock) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	*m.calls = append(*m.calls, "call")
-
-	resp := ""
-	if m.index < len(m.responses) {
-		resp = m.responses[m.index]
-		m.index++
-	}
-
-	return openai.ChatCompletionResponse{
-		Choices: []openai.ChatCompletionChoice{
-			{Message: openai.ChatCompletionMessage{Content: resp}},
-		},
-	}, nil
-}
-
-// cancellingMock cancels context on first call.
-type cancellingMock struct {
-	cancel context.CancelFunc
-	called bool
-}
-
-func (m *cancellingMock) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-	if !m.called {
-		m.called = true
-		m.cancel()
-	}
-	return openai.ChatCompletionResponse{}, context.Canceled
-}
-
-// capturingMock captures system prompts.
-type capturingMock struct {
-	prompts  *[]string
-	mu       *sync.Mutex
-	response string
-}
-
-func (m *capturingMock) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-	m.mu.Lock()
-	for _, msg := range req.Messages {
-		if msg.Role == openai.ChatMessageRoleSystem {
-			*m.prompts = append(*m.prompts, msg.Content)
-		}
-	}
-	m.mu.Unlock()
-
-	return openai.ChatCompletionResponse{
-		Choices: []openai.ChatCompletionChoice{
-			{Message: openai.ChatCompletionMessage{Content: m.response}},
-		},
-	}, nil
 }

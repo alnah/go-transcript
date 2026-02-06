@@ -3,9 +3,6 @@ package restructure
 // Exports for testing. These allow black-box tests to inject dependencies
 // without modifying the public API.
 
-// OpenAI option exports for dependency injection in tests.
-var WithChatCompleter = withChatCompleter
-
 // DeepSeek option exports for dependency injection in tests.
 var WithDeepSeekHTTPClient = withDeepSeekHTTPClient
 

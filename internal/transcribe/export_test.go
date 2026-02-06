@@ -1,20 +1,19 @@
 package transcribe
 
 import (
-	"net/http"
 	"time"
 )
 
 // Exports for testing. These allow black-box tests to inject dependencies
 // without modifying the public API.
 
-// NewTestTranscriber creates an OpenAITranscriber with a mock audioTranscriber.
-// This allows testing without a real OpenAI client.
-func NewTestTranscriber(client audioTranscriber, opts ...TranscriberOption) *OpenAITranscriber {
+// NewTestTranscriber creates an OpenAITranscriber with a mock httpDoer and test base URL.
+// This allows testing without a real OpenAI API.
+func NewTestTranscriber(httpClient httpDoer, baseURL string, opts ...TranscriberOption) *OpenAITranscriber {
 	t := &OpenAITranscriber{
-		client:     client,
-		httpClient: &http.Client{Timeout: 5 * time.Minute},
+		httpClient: httpClient,
 		apiKey:     "test-api-key",
+		baseURL:    baseURL,
 		maxRetries: defaultMaxRetries,
 		baseDelay:  defaultBaseDelay,
 		maxDelay:   defaultMaxDelay,
@@ -25,25 +24,22 @@ func NewTestTranscriber(client audioTranscriber, opts ...TranscriberOption) *Ope
 	return t
 }
 
-// NewTestTranscriberWithHTTP creates an OpenAITranscriber with both mock audioTranscriber and httpDoer.
-// This allows testing diarization which uses direct HTTP.
-func NewTestTranscriberWithHTTP(client audioTranscriber, httpClient httpDoer, apiKey string, opts ...TranscriberOption) *OpenAITranscriber {
-	t := &OpenAITranscriber{
-		client:     client,
-		httpClient: httpClient,
-		apiKey:     apiKey,
-		maxRetries: defaultMaxRetries,
-		baseDelay:  defaultBaseDelay,
-		maxDelay:   defaultMaxDelay,
+// Option exports for dependency injection in tests.
+var TestWithHTTPClient = WithHTTPClient
+
+// MinimalRetryOpts returns options that minimize retry delays for tests.
+func MinimalRetryOpts() []TranscriberOption {
+	return []TranscriberOption{
+		WithMaxRetries(0),
+		WithRetryDelays(time.Millisecond, time.Millisecond),
 	}
-	for _, opt := range opts {
-		opt(t)
-	}
-	return t
 }
 
 // Function exports for unit testing internal logic.
 var (
-	ClassifyError    = classifyError
-	IsRetryableError = isRetryableError
+	ClassifyError              = classifyError
+	IsRetryableError           = isRetryableError
+	ParseDiarizeResponse       = parseDiarizeResponse
+	ParseTranscriptionResponse = parseTranscriptionResponse
+	ParseHTTPError             = parseHTTPError
 )

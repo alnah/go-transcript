@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alnah/go-transcript/internal/apierr"
 	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/template"
-	"github.com/alnah/go-transcript/internal/transcribe"
 )
 
 // DeepSeek API configuration.
@@ -133,9 +133,6 @@ func withDeepSeekHTTPClient(client httpDoer) DeepSeekOption {
 	}
 }
 
-// ErrEmptyAPIKey indicates that the API key was not provided.
-var ErrEmptyAPIKey = errors.New("API key is required")
-
 // NewDeepSeekRestructurer creates a new DeepSeekRestructurer.
 // apiKey is required and must be a valid DeepSeek API key.
 // Returns nil and ErrEmptyAPIKey if apiKey is empty.
@@ -217,13 +214,13 @@ func (r *DeepSeekRestructurer) RestructureWithCustomPrompt(ctx context.Context, 
 
 // restructureWithRetry executes the restructuring with exponential backoff retry.
 func (r *DeepSeekRestructurer) restructureWithRetry(ctx context.Context, req deepSeekRequest) (string, error) {
-	cfg := transcribe.RetryConfig{
+	cfg := apierr.RetryConfig{
 		MaxRetries: r.maxRetries,
 		BaseDelay:  r.baseDelay,
 		MaxDelay:   r.maxDelay,
 	}
 
-	return transcribe.RetryWithBackoff(ctx, cfg, func() (string, error) {
+	return apierr.RetryWithBackoff(ctx, cfg, func() (string, error) {
 		resp, err := r.callAPI(ctx, req)
 		if err != nil {
 			return "", classifyDeepSeekError(err)
@@ -367,13 +364,13 @@ func classifyDeepSeekError(err error) error {
 	if errors.As(err, &apiErr) {
 		switch apiErr.StatusCode {
 		case http.StatusTooManyRequests: // 429
-			return fmt.Errorf("%s: %w", apiErr.Message, transcribe.ErrRateLimit)
+			return fmt.Errorf("%s: %w", apiErr.Message, apierr.ErrRateLimit)
 		case http.StatusUnauthorized: // 401
-			return fmt.Errorf("%s: %w", apiErr.Message, transcribe.ErrAuthFailed)
+			return fmt.Errorf("%s: %w", apiErr.Message, apierr.ErrAuthFailed)
 		case http.StatusPaymentRequired: // 402 - DeepSeek uses this for insufficient balance
-			return fmt.Errorf("%s: %w", apiErr.Message, transcribe.ErrQuotaExceeded)
+			return fmt.Errorf("%s: %w", apiErr.Message, apierr.ErrQuotaExceeded)
 		case http.StatusRequestTimeout, http.StatusGatewayTimeout: // 408, 504
-			return fmt.Errorf("%s: %w", apiErr.Message, transcribe.ErrTimeout)
+			return fmt.Errorf("%s: %w", apiErr.Message, apierr.ErrTimeout)
 		case http.StatusBadRequest: // 400
 			// Check for context length exceeded
 			if strings.Contains(apiErr.Message, "context_length") ||
@@ -381,18 +378,20 @@ func classifyDeepSeekError(err error) error {
 				strings.Contains(apiErr.Message, "too long") {
 				return fmt.Errorf("API rejected: %w", ErrTranscriptTooLong)
 			}
+			return fmt.Errorf("%s: %w", apiErr.Message, apierr.ErrBadRequest)
 		case http.StatusUnprocessableEntity: // 422 - Invalid parameters
 			if strings.Contains(apiErr.Message, "context") ||
 				strings.Contains(apiErr.Message, "length") ||
 				strings.Contains(apiErr.Message, "token") {
 				return fmt.Errorf("API rejected: %w", ErrTranscriptTooLong)
 			}
+			return fmt.Errorf("%s: %w", apiErr.Message, apierr.ErrBadRequest)
 		}
 	}
 
 	// Check for context timeout/deadline exceeded
 	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("request timed out: %w", transcribe.ErrTimeout)
+		return fmt.Errorf("request timed out: %w", apierr.ErrTimeout)
 	}
 
 	return err
@@ -401,12 +400,12 @@ func classifyDeepSeekError(err error) error {
 // isRetryableDeepSeekError determines if an error is transient and should be retried.
 func isRetryableDeepSeekError(err error) bool {
 	// Rate limits are retryable (with backoff)
-	if errors.Is(err, transcribe.ErrRateLimit) {
+	if errors.Is(err, apierr.ErrRateLimit) {
 		return true
 	}
 
 	// Timeouts are retryable
-	if errors.Is(err, transcribe.ErrTimeout) {
+	if errors.Is(err, apierr.ErrTimeout) {
 		return true
 	}
 
@@ -428,12 +427,12 @@ func isRetryableDeepSeekError(err error) bool {
 	}
 
 	// Auth errors are not retryable
-	if errors.Is(err, transcribe.ErrAuthFailed) {
+	if errors.Is(err, apierr.ErrAuthFailed) {
 		return false
 	}
 
 	// Quota exceeded is not retryable
-	if errors.Is(err, transcribe.ErrQuotaExceeded) {
+	if errors.Is(err, apierr.ErrQuotaExceeded) {
 		return false
 	}
 

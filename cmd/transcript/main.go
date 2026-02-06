@@ -12,13 +12,13 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 
+	"github.com/alnah/go-transcript/internal/apierr"
 	"github.com/alnah/go-transcript/internal/audio"
 	"github.com/alnah/go-transcript/internal/cli"
 	"github.com/alnah/go-transcript/internal/ffmpeg"
 	"github.com/alnah/go-transcript/internal/lang"
 	"github.com/alnah/go-transcript/internal/restructure"
 	"github.com/alnah/go-transcript/internal/template"
-	"github.com/alnah/go-transcript/internal/transcribe"
 )
 
 // Injected at build time via ldflags.
@@ -110,8 +110,8 @@ func exitCode(err error) int {
 	}
 
 	// Transcription errors (ExitTranscription = 5).
-	if errors.Is(err, transcribe.ErrRateLimit) || errors.Is(err, transcribe.ErrQuotaExceeded) ||
-		errors.Is(err, transcribe.ErrTimeout) || errors.Is(err, transcribe.ErrAuthFailed) {
+	if errors.Is(err, apierr.ErrRateLimit) || errors.Is(err, apierr.ErrQuotaExceeded) ||
+		errors.Is(err, apierr.ErrTimeout) || errors.Is(err, apierr.ErrAuthFailed) {
 		return ExitTranscription
 	}
 
